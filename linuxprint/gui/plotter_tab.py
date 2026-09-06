@@ -119,7 +119,9 @@ class PlotterTab(QWidget):
         form.addRow("Tlak čepele:", self.pressure_spin)
 
         self.speed_spin = QSpinBox()
-        self.speed_spin.setRange(1, 10)
+        # Cameo 4/5 (PRODUCT_LINE_CAMEO4 in the vendored driver) accepts
+        # speed 1-30; only older pre-Cameo-3 devices clamp to 1-10.
+        self.speed_spin.setRange(1, 30)
         self.speed_spin.setValue(10)
         form.addRow("Rýchlosť:", self.speed_spin)
 
@@ -271,16 +273,32 @@ class PlotterTab(QWidget):
         self.log_view.append(f"Spúšťam úlohu ({len(job.passes)} prechodov)…")
         self._set_actions_enabled(False)
 
-        self._thread = QThread()
-        self._worker = _PlotWorker(job)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self._on_plot_event)
-        self._worker.finished.connect(self._on_plot_finished)
-        self._worker.failed.connect(self._on_plot_failed)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.failed.connect(self._thread.quit)
-        self._thread.start()
+        thread = QThread()
+        worker = _PlotWorker(job)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_plot_event)
+        worker.finished.connect(self._on_plot_finished)
+        worker.failed.connect(self._on_plot_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(lambda: self._on_thread_finished(thread, worker))
+        thread.finished.connect(thread.deleteLater)
+
+        # Keep references so they aren't garbage-collected mid-job, but a
+        # second job started before this one's thread fully quits must not
+        # let this call's cleanup tear down the newer thread/worker -- see
+        # _on_thread_finished's identity check.
+        self._thread = thread
+        self._worker = worker
+        thread.start()
+
+    def _on_thread_finished(self, thread: QThread, worker: "_PlotWorker") -> None:
+        if self._thread is thread and self._worker is worker:
+            self._thread = None
+            self._worker = None
 
     def _on_plot_event(self, event: PlotEvent) -> None:
         if event.kind == "pass_started":

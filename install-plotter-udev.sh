@@ -17,6 +17,7 @@ DEST="/etc/udev/rules.d/$RULE_FILE"
 do_uninstall() {
     rm -f "$DEST"
     udevadm control --reload-rules
+    udevadm trigger
     echo "Removed $DEST"
 }
 

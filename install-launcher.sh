@@ -68,9 +68,9 @@ do_install() {
         echo "     'externally-managed-environment', or use" >&2
         echo "     'sudo apt install python3-pyqt6')" >&2
     fi
-    if ! python3 -c "import usb, svgelements" >/dev/null 2>&1; then
-        echo "Warning: pyusb and/or svgelements are not installed (needed for the" >&2
-        echo "Plotter tab -- printing still works without them). Install with:" >&2
+    if ! python3 -c "import usb, svgelements, defusedxml" >/dev/null 2>&1; then
+        echo "Warning: pyusb, svgelements and/or defusedxml are not installed (needed" >&2
+        echo "for the Plotter tab -- printing still works without them). Install with:" >&2
         printf '    python3 -m pip install --user -r %q\n' \
             "$REPO_DIR/requirements.txt" >&2
         echo "    (add --break-system-packages if pip refuses with" >&2

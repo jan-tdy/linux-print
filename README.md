@@ -134,8 +134,10 @@ line up.
 - Ubuntu/Kubuntu 24.04+ (or any Linux with CUPS -- `cups` + `cups-client`)
 - Python 3.10+
 - PyQt6
-- `pyusb` and `svgelements` (only needed for the Plotter tab; printing
-  works fine without them)
+- `pyusb`, `svgelements` and `defusedxml` (only needed for the Plotter tab;
+  printing works fine without them -- if they're missing, the Plotter tab
+  shows a placeholder telling you what to install instead of the app
+  failing to start)
 
 Install the Python dependency:
 

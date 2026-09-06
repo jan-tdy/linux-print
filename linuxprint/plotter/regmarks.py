@@ -29,10 +29,18 @@ import os
 import tempfile
 import xml.etree.ElementTree as ET
 
+from defusedxml.ElementTree import parse as safe_parse
+from svgelements import SVG
+
 from .job import RegmarkSettings
 
 MARK_SIZE_MM = 5.0
 _SVG_NS = "http://www.w3.org/2000/svg"
+
+# CSS/SVG default: 1 inch = 96 user units ("px"), 1 inch = 25.4mm. Matches
+# svg_import.py's PX_PER_MM -- kept as a separate constant here since this
+# module must stay independent of svg_import.py's cut/draw parsing.
+_USER_UNITS_PER_MM = 96.0 / 25.4
 
 
 def regmark_points_mm(settings: RegmarkSettings) -> list[tuple[float, float]]:
@@ -65,19 +73,54 @@ def render_regmarks_svg(settings: RegmarkSettings, page_width_mm: float, page_he
     )
 
 
+def _mm_to_user_units_transform(svg_path: str) -> tuple[float, float, float, float]:
+    """Return (origin_x, origin_y, scale_x, scale_y) to convert a millimetre
+    point (measured from the page's top-left corner) into the *user units*
+    the document's own root <svg> element draws its direct children in.
+
+    A unit-suffixed length like "15mm" on a child element is an absolute
+    CSS length (always 96 user units per inch) -- it is NOT scaled by an
+    ancestor's viewBox the way a plain unitless number is. So when the root
+    element has a viewBox (e.g. width="300mm" height="300mm"
+    viewBox="0 0 300 300", where 1 user unit is meant to equal 1mm),
+    writing x="15mm" ends up ~3.78x too far (96/25.4 user units per
+    intended user unit) instead of landing at the intended 15mm. Converting
+    to plain numbers in the root's actual user-unit space avoids that.
+    """
+    svg = SVG.parse(svg_path)
+    viewbox = svg.viewbox
+    if viewbox is not None and svg.width and svg.height:
+        physical_width_mm = float(svg.width) / _USER_UNITS_PER_MM
+        physical_height_mm = float(svg.height) / _USER_UNITS_PER_MM
+        if physical_width_mm > 0 and physical_height_mm > 0:
+            return (
+                viewbox.x,
+                viewbox.y,
+                viewbox.width / physical_width_mm,
+                viewbox.height / physical_height_mm,
+            )
+    # No viewBox (or no resolvable physical size): the root's user-unit
+    # space is plain CSS pixels, unscaled by any viewBox.
+    return (0.0, 0.0, _USER_UNITS_PER_MM, _USER_UNITS_PER_MM)
+
+
 def merge_svg_with_regmarks(svg_path: str, settings: RegmarkSettings) -> str:
     """Copy svg_path to a temp file with the registration squares appended
     as extra <rect> elements, ready to print. Returns the temp file path;
     the caller is responsible for deleting it once printing is done."""
+    # Reject a malicious DOCTYPE (XXE / entity expansion) via defusedxml
+    # before svgelements' own (unhardened) parser ever touches the file.
     ET.register_namespace("", _SVG_NS)
-    tree = ET.parse(svg_path)
+    tree = safe_parse(svg_path)
     root = tree.getroot()
-    for x, y in regmark_points_mm(settings):
+
+    origin_x, origin_y, scale_x, scale_y = _mm_to_user_units_transform(svg_path)
+    for x_mm, y_mm in regmark_points_mm(settings):
         rect = ET.SubElement(root, f"{{{_SVG_NS}}}rect")
-        rect.set("x", f"{x}mm")
-        rect.set("y", f"{y}mm")
-        rect.set("width", f"{MARK_SIZE_MM}mm")
-        rect.set("height", f"{MARK_SIZE_MM}mm")
+        rect.set("x", f"{origin_x + x_mm * scale_x:.4f}")
+        rect.set("y", f"{origin_y + y_mm * scale_y:.4f}")
+        rect.set("width", f"{MARK_SIZE_MM * scale_x:.4f}")
+        rect.set("height", f"{MARK_SIZE_MM * scale_y:.4f}")
         rect.set("fill", "#000000")
 
     fd, out_path = tempfile.mkstemp(suffix=".svg", prefix="jadiv-print-center-regmarks-")
