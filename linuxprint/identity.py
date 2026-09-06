@@ -19,6 +19,7 @@ class IdentityRecord:
     category: str
     added_uri: str
     added_at: float
+    legacy_transport_allowed: bool = False
 
 
 def load_map() -> dict[str, IdentityRecord]:
@@ -40,9 +41,11 @@ def load_map() -> dict[str, IdentityRecord]:
     records = {}
     for name, value in raw.items():
         try:
-            records[name] = IdentityRecord(**value)
+            record = IdentityRecord(**value)
         except TypeError:
             continue
+        record.legacy_transport_allowed = record.legacy_transport_allowed is True
+        records[name] = record
     return records
 
 
@@ -58,13 +61,14 @@ def save_map(records: dict[str, IdentityRecord]) -> None:
     config.IDENTITY_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def remember(name: str, discovered: DiscoveredPrinter) -> None:
+def remember(name: str, discovered: DiscoveredPrinter, *, legacy_transport_allowed: bool = False) -> None:
     """
     Record a discovered printer's identity information under the specified name.
     
     Parameters:
     	name (str): The printer name used as the mapping key.
     	discovered (DiscoveredPrinter): The discovered printer metadata to store.
+        legacy_transport_allowed (bool): Whether the user explicitly accepted this printer's unencrypted transport.
     """
     records = load_map()
     records[name] = IdentityRecord(
@@ -72,6 +76,7 @@ def remember(name: str, discovered: DiscoveredPrinter) -> None:
         category=discovered.category,
         added_uri=discovered.uri,
         added_at=time.time(),
+        legacy_transport_allowed=legacy_transport_allowed is True,
     )
     save_map(records)
 

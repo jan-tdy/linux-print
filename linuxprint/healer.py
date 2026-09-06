@@ -25,6 +25,7 @@ class Repair:
     old_uri: str
     new_uri: str
     reason: str
+    legacy_transport_allowed: bool = False
 
 
 @dataclass
@@ -93,6 +94,7 @@ def plan_repairs(
                     f"Tlačiareň '{name}' zmenila adresu "
                     f"({printer.uri} -> {match.uri}); opravujem CUPS frontu."
                 ),
+                legacy_transport_allowed=record.legacy_transport_allowed,
             )
         )
     return repairs
@@ -110,7 +112,11 @@ def apply_repairs(repairs: list[Repair]) -> list[RepairResult]:
     """
     results = []
     for repair in repairs:
-        result = cups_cli.set_device_uri(repair.printer_name, repair.new_uri)
+        result = cups_cli.set_device_uri(
+            repair.printer_name,
+            repair.new_uri,
+            allow_legacy_transport=repair.legacy_transport_allowed,
+        )
         message = repair.reason if result.ok else f"Oprava zlyhala: {result.stderr.strip()}"
         results.append(RepairResult(repair=repair, ok=result.ok, message=message))
     return results

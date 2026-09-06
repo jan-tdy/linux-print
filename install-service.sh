@@ -29,6 +29,13 @@ do_uninstall() {
 
 # do_install installs and starts the Jadiv Print Center systemd user service.
 do_install() {
+    # ExecStart embeds this path in systemd quoting. Refuse characters that
+    # require syntax-specific escaping rather than generating an invalid unit.
+    if [[ "$REPO_DIR" == *'"'* || "$REPO_DIR" == *'\'* ]]; then
+        echo 'Error: the repository path must not contain quotes or backslashes.' >&2
+        exit 1
+    fi
+
     if ! command -v systemctl >/dev/null 2>&1; then
         echo "Error: systemctl not found -- this system doesn't use systemd." >&2
         echo "You can still run 'python3 $REPO_DIR/jadiv_print_center.py --daemon' manually" >&2

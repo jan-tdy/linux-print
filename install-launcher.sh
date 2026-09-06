@@ -39,6 +39,14 @@ do_uninstall() {
 
 # do_install installs the Jadiv Print Center desktop launcher and icon for the current user.
 do_install() {
+    # The desktop entry embeds this path in both Exec and Path. Quotes and
+    # backslashes have syntax-specific meanings there, so refuse paths that
+    # cannot be substituted literally instead of generating a broken entry.
+    if [[ "$REPO_DIR" == *'"'* || "$REPO_DIR" == *'\'* ]]; then
+        echo 'Error: the repository path must not contain quotes or backslashes.' >&2
+        exit 1
+    fi
+
     # Sanity check: make sure the app and its dependencies are reachable.
     if ! command -v python3 >/dev/null 2>&1; then
         echo "Error: python3 is not installed." >&2
@@ -68,9 +76,9 @@ do_install() {
     mkdir -p "$APP_DIR" "$ICON_DIR"
     install -m 0644 "$ASSETS_DIR/$ICON_NAME" "$ICON_DIR/$ICON_NAME"
 
-    # Substitute the placeholder with the real repo path. python3 (verified
-    # above) does a literal replacement that is safe for any characters in the
-    # path — spaces, backslashes, ampersands, etc.
+    # Substitute the placeholder with the validated repo path. Python performs
+    # a literal replacement, while the check above excludes characters that
+    # would need desktop-entry escaping in the generated fields.
     python3 -c 'import sys; sys.stdout.write(sys.stdin.read().replace("__INSTALL_DIR__", sys.argv[1]))' \
         "$REPO_DIR" < "$ASSETS_DIR/$DESKTOP_FILE" > "$APP_DIR/$DESKTOP_FILE"
     chmod 0644 "$APP_DIR/$DESKTOP_FILE"

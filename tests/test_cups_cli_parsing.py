@@ -1,10 +1,13 @@
 from linuxprint.cups_cli import (
+    add_or_update_printer,
     parse_lpinfo_v,
     parse_lpstat_a,
     parse_lpstat_d,
     parse_lpstat_o,
     parse_lpstat_p,
     parse_lpstat_v,
+    requires_legacy_transport_opt_in,
+    set_device_uri,
 )
 
 
@@ -57,3 +60,70 @@ def test_parse_lpstat_o_extracts_jobs():
     assert jobs[0].job_id == "HP_LaserJet-42"
     assert jobs[0].user == "jan"
     assert jobs[0].printer == "HP_LaserJet"
+
+
+def test_legacy_transport_detection():
+    assert requires_legacy_transport_opt_in("ipp://printer.local/ipp/print")
+    assert requires_legacy_transport_opt_in("socket://printer.local:9100")
+    assert requires_legacy_transport_opt_in("lpd://printer.local/queue")
+    assert requires_legacy_transport_opt_in("http://printer.local/ipp/print")
+    assert requires_legacy_transport_opt_in("dnssd://Printer._ipp._tcp.local/")
+    assert requires_legacy_transport_opt_in("dnssd://Printer._pdl-datastream._tcp.local/")
+    assert requires_legacy_transport_opt_in("dnssd://Printer._ipp._tcp.local/?note=._ipps._tcp.local")
+    assert not requires_legacy_transport_opt_in("ipps://printer.local/ipp/print")
+    assert not requires_legacy_transport_opt_in("https://printer.local/ipp/print")
+    assert not requires_legacy_transport_opt_in("dnssd://Printer._ipps._tcp.local/")
+    assert not requires_legacy_transport_opt_in("usb://EPSON/L3150")
+
+
+def test_add_printer_blocks_legacy_transport_without_opt_in(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    result = add_or_update_printer("Office", "ipp://printer.local/ipp/print")
+
+    assert not result.ok
+    assert calls == []
+
+
+def test_add_printer_rejects_non_boolean_legacy_transport_opt_in(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    result = add_or_update_printer(
+        "Office",
+        "ipp://printer.local/ipp/print",
+        allow_legacy_transport="yes",  # type: ignore[arg-type]
+    )
+
+    assert not result.ok
+    assert calls == []
+
+
+def test_add_printer_allows_legacy_transport_after_opt_in(monkeypatch):
+    calls = []
+
+    def fake_run(args):
+        calls.append(args)
+        from linuxprint.cups_cli import ToolResult
+
+        return ToolResult(True, 0, "", "")
+
+    monkeypatch.setattr("linuxprint.cups_cli.run", fake_run)
+
+    result = add_or_update_printer(
+        "Office", "socket://printer.local:9100", allow_legacy_transport=True, enable=False, accept=False
+    )
+
+    assert result.ok
+    assert calls[0][:5] == ["lpadmin", "-p", "Office", "-v", "socket://printer.local:9100"]
+
+
+def test_set_device_uri_blocks_legacy_transport_without_opt_in(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    result = set_device_uri("Office", "lpd://printer.local/queue")
+
+    assert not result.ok
+    assert calls == []

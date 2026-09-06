@@ -1,6 +1,6 @@
-from linuxprint.cups_cli import Printer
+from linuxprint.cups_cli import Printer, ToolResult
 from linuxprint.discovery import DiscoveredPrinter
-from linuxprint.healer import plan_repairs
+from linuxprint.healer import Repair, apply_repairs, plan_repairs
 from linuxprint.identity import IdentityRecord
 
 
@@ -31,6 +31,28 @@ def test_plan_repairs_fixes_drifted_ip_printer():
     assert len(repairs) == 1
     assert repairs[0].printer_name == "Office_Printer"
     assert repairs[0].new_uri == "ipp://192.168.1.99:631/ipp/print"
+
+
+def test_apply_repairs_reuses_persisted_legacy_transport_consent(monkeypatch):
+    calls = []
+
+    def fake_set_device_uri(name, uri, *, allow_legacy_transport=False):
+        calls.append((name, uri, allow_legacy_transport))
+        return ToolResult(True, 0, "", "")
+
+    monkeypatch.setattr("linuxprint.healer.cups_cli.set_device_uri", fake_set_device_uri)
+    repair = Repair(
+        printer_name="Office_Printer",
+        old_uri="socket://192.168.1.50:9100",
+        new_uri="socket://192.168.1.99:9100",
+        reason="Address changed",
+        legacy_transport_allowed=True,
+    )
+
+    results = apply_repairs([repair])
+
+    assert results[0].ok
+    assert calls == [("Office_Printer", "socket://192.168.1.99:9100", True)]
 
 
 def test_plan_repairs_skips_dnssd_and_usb_schemes():

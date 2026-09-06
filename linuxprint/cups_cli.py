@@ -16,6 +16,10 @@ import subprocess
 from dataclasses import dataclass, field
 
 DEFAULT_TIMEOUT = 15
+LEGACY_TRANSPORT_WARNING = (
+    "The selected printer URI uses an unencrypted legacy network transport. "
+    "Only continue if you trust the printer and the network."
+)
 
 
 class CupsToolMissing(RuntimeError):
@@ -283,6 +287,24 @@ def lpinfo_devices() -> list[DiscoveredDevice]:
 # ---------------------------------------------------------------------------
 
 
+def requires_legacy_transport_opt_in(uri: str) -> bool:
+    """Return whether a network printer URI requires explicit user consent."""
+    normalized = uri.lower()
+    scheme = normalized.split(":", 1)[0]
+    if scheme in {"ipp", "socket", "lpd", "http"}:
+        return True
+    if scheme == "dnssd":
+        authority = normalized.partition("://")[2].split("/", 1)[0]
+        return "._ipps._tcp." not in authority and not authority.endswith("._ipps._tcp")
+    return False
+
+
+def _legacy_transport_denied(uri: str, allow_legacy_transport: bool) -> ToolResult | None:
+    if requires_legacy_transport_opt_in(uri) and allow_legacy_transport is not True:
+        return ToolResult(False, -1, "", LEGACY_TRANSPORT_WARNING)
+    return None
+
+
 def add_or_update_printer(
     name: str,
     uri: str,
@@ -295,6 +317,7 @@ def add_or_update_printer(
     enable: bool = True,
     accept: bool = True,
     set_default: bool = False,
+    allow_legacy_transport: bool = False,
 ) -> ToolResult:
     """
     Create or update a CUPS printer and optionally configure its operating state.
@@ -310,10 +333,15 @@ def add_or_update_printer(
         enable (bool): Whether to enable the printer after creation or update.
         accept (bool): Whether to accept print jobs after creation or update.
         set_default (bool): Whether to make the printer the default.
+        allow_legacy_transport (bool): Whether the user explicitly accepted an unencrypted network transport.
     
     Returns:
         ToolResult: The result of the printer creation or update command. Subsequent configuration commands are run only when that command succeeds.
     """
+    denied = _legacy_transport_denied(uri, allow_legacy_transport)
+    if denied is not None:
+        return denied
+
     args = ["lpadmin", "-p", name, "-v", uri, "-E"]
     if driverless and not ppd:
         args += ["-m", "everywhere"]
@@ -338,16 +366,20 @@ def add_or_update_printer(
     return result
 
 
-def set_device_uri(name: str, uri: str) -> ToolResult:
+def set_device_uri(name: str, uri: str, *, allow_legacy_transport: bool = False) -> ToolResult:
     """Update an existing printer to use the specified device URI.
     
     Parameters:
         name (str): Printer name.
         uri (str): New device URI.
+        allow_legacy_transport (bool): Whether the user explicitly accepted an unencrypted network transport.
     
     Returns:
         ToolResult: The result of the `lpadmin` command.
     """
+    denied = _legacy_transport_denied(uri, allow_legacy_transport)
+    if denied is not None:
+        return denied
     return run(["lpadmin", "-p", name, "-v", uri])
 
 
@@ -412,7 +444,13 @@ def set_shared(name: str, shared: bool) -> ToolResult:
     return run(["lpadmin", "-p", name, "-o", f"printer-is-shared={'true' if shared else 'false'}"])
 
 
-def rename_printer(old_name: str, new_name: str, uri: str) -> ToolResult:
+def rename_printer(
+    old_name: str,
+    new_name: str,
+    uri: str,
+    *,
+    allow_legacy_transport: bool = False,
+) -> ToolResult:
     """
     Rename a CUPS printer by creating the new printer and removing the old one.
     
@@ -420,11 +458,12 @@ def rename_printer(old_name: str, new_name: str, uri: str) -> ToolResult:
         old_name (str): Name of the existing printer.
         new_name (str): Name for the new printer.
         uri (str): Device URI for the new printer.
+        allow_legacy_transport (bool): Whether the user explicitly accepted an unencrypted network transport.
     
     Returns:
         ToolResult: Result of creating the new printer.
     """
-    result = add_or_update_printer(new_name, uri)
+    result = add_or_update_printer(new_name, uri, allow_legacy_transport=allow_legacy_transport)
     if result.ok:
         remove_printer(old_name)
     return result

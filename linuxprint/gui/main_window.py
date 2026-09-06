@@ -318,6 +318,18 @@ class MainWindow(QMainWindow):
             return
         device = dialog.selected_device
         name = dialog.queue_name()
+        allow_legacy_transport = False
+        if cups_cli.requires_legacy_transport_opt_in(device.uri):
+            choice = QMessageBox.warning(
+                self,
+                "Nešifrované pripojenie tlačiarne",
+                cups_cli.LEGACY_TRANSPORT_WARNING + "\n\nChceš napriek tomu pokračovať?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+            allow_legacy_transport = True
         result = cups_cli.add_or_update_printer(
             name,
             device.uri,
@@ -325,11 +337,12 @@ class MainWindow(QMainWindow):
             location=dialog.location(),
             shared=dialog.shared(),
             set_default=dialog.set_default(),
+            allow_legacy_transport=allow_legacy_transport,
         )
         if not result.ok:
             QMessageBox.critical(self, "Pridanie zlyhalo", result.stderr or "Neznáma chyba lpadmin.")
             return
-        identity.remember(name, device)
+        identity.remember(name, device, legacy_transport_allowed=allow_legacy_transport)
         self._append_log(f"Pridaná tlačiareň '{name}' ({device.uri}).")
         self._refresh_printers_now()
 
