@@ -31,6 +31,18 @@ class ToolResult:
 
 
 def _which(binary: str) -> str:
+    """
+    Resolve a CUPS command name to its executable path.
+    
+    Parameters:
+        binary (str): Name of the executable to locate.
+    
+    Returns:
+        str: Path to the executable.
+    
+    Raises:
+        CupsToolMissing: If the executable cannot be found.
+    """
     path = shutil.which(binary)
     if not path:
         raise CupsToolMissing(
@@ -41,6 +53,16 @@ def _which(binary: str) -> str:
 
 
 def run(args: list[str], timeout: int = DEFAULT_TIMEOUT) -> ToolResult:
+    """
+    Execute a CUPS command and capture its result.
+    
+    Parameters:
+    	args (list[str]): Command name followed by its arguments.
+    	timeout (int): Maximum execution time in seconds.
+    
+    Returns:
+    	ToolResult: Command success status, exit code, standard output, and error output. A timed-out command has return code -1.
+    """
     binary = _which(args[0])
     try:
         proc = subprocess.run(
@@ -56,6 +78,14 @@ def run(args: list[str], timeout: int = DEFAULT_TIMEOUT) -> ToolResult:
 
 
 def is_available(binary: str) -> bool:
+    """Determine whether a command-line binary is available on the system.
+    
+    Parameters:
+    	binary (str): The binary name or path to check.
+    
+    Returns:
+    	bool: `true` if the binary is available, `false` otherwise.
+    """
     return shutil.which(binary) is not None
 
 
@@ -84,7 +114,15 @@ _STATE_RE = re.compile(
 
 
 def parse_lpstat_p(output: str) -> dict[str, Printer]:
-    """Parse `lpstat -p` output into a name -> Printer map."""
+    """
+    Parse CUPS printer status output into printer records keyed by printer name.
+    
+    Parameters:
+        output (str): Text produced by `lpstat -p`.
+    
+    Returns:
+        dict[str, Printer]: Printer records containing each printer's state and status reason.
+    """
     printers: dict[str, Printer] = {}
     for line in output.splitlines():
         line = line.strip()
@@ -123,7 +161,15 @@ def parse_lpstat_d(output: str) -> str | None:
 
 
 def parse_lpstat_a(output: str) -> dict[str, bool]:
-    """Parse `lpstat -a` (accepting jobs) into name -> accepting bool."""
+    """
+    Parse printer job-acceptance statuses from `lpstat -a` output.
+    
+    Parameters:
+        output (str): Raw output from the `lpstat -a` command.
+    
+    Returns:
+        dict[str, bool]: A mapping of printer names to whether they accept jobs.
+    """
     accepting: dict[str, bool] = {}
     for line in output.splitlines():
         line = line.strip()
@@ -136,7 +182,15 @@ def parse_lpstat_a(output: str) -> dict[str, bool]:
 
 
 def parse_lpstat_v(output: str) -> dict[str, str]:
-    """Parse `lpstat -v [name]` into name -> device URI."""
+    """
+    Parse CUPS device listing output into printer names and device URIs.
+    
+    Parameters:
+        output (str): Output from `lpstat -v`.
+    
+    Returns:
+        dict[str, str]: A mapping from printer name to device URI.
+    """
     uris: dict[str, str] = {}
     for line in output.splitlines():
         line = line.strip()
@@ -151,6 +205,12 @@ def parse_lpstat_v(output: str) -> dict[str, str]:
 
 
 def list_printers() -> dict[str, Printer]:
+    """
+    List configured printers with their default status, job acceptance state, and device URI.
+    
+    Returns:
+    	dict[str, Printer]: Printers keyed by name.
+    """
     printers = parse_lpstat_p(run(["lpstat", "-p"]).stdout)
     default = parse_lpstat_d(run(["lpstat", "-d"]).stdout)
     accepting = parse_lpstat_a(run(["lpstat", "-a"]).stdout)
@@ -165,6 +225,14 @@ def list_printers() -> dict[str, Printer]:
 
 
 def printer_uri(name: str) -> str | None:
+    """Retrieve the device URI for a printer.
+    
+    Parameters:
+    	name (str): The printer name.
+    
+    Returns:
+    	str | None: The printer's device URI, or `None` if no URI is found.
+    """
     return parse_lpstat_v(run(["lpstat", "-v", name]).stdout).get(name)
 
 
@@ -184,6 +252,14 @@ class DiscoveredDevice:
 
 
 def parse_lpinfo_v(output: str) -> list[DiscoveredDevice]:
+    """Parse CUPS device discovery output into discovered devices.
+    
+    Parameters:
+    	output (str): Device discovery output with one device kind and URI per line.
+    
+    Returns:
+    	list[DiscoveredDevice]: Devices parsed from valid lines.
+    """
     devices = []
     for line in output.splitlines():
         line = line.strip()
@@ -198,6 +274,7 @@ def parse_lpinfo_v(output: str) -> list[DiscoveredDevice]:
 
 
 def lpinfo_devices() -> list[DiscoveredDevice]:
+    """List devices discovered by CUPS."""
     return parse_lpinfo_v(run(["lpinfo", "-v"], timeout=30).stdout)
 
 
@@ -219,6 +296,24 @@ def add_or_update_printer(
     accept: bool = True,
     set_default: bool = False,
 ) -> ToolResult:
+    """
+    Create or update a CUPS printer and optionally configure its operating state.
+    
+    Parameters:
+        name (str): Printer name.
+        uri (str): Device URI for the printer.
+        description (str): Printer description.
+        location (str): Printer location.
+        driverless (bool): Whether to use the driverless `everywhere` model when no PPD is provided.
+        ppd (str | None): PPD or CUPS model name to use instead of the driverless model.
+        shared (bool): Whether to share the printer.
+        enable (bool): Whether to enable the printer after creation or update.
+        accept (bool): Whether to accept print jobs after creation or update.
+        set_default (bool): Whether to make the printer the default.
+    
+    Returns:
+        ToolResult: The result of the printer creation or update command. Subsequent configuration commands are run only when that command succeeds.
+    """
     args = ["lpadmin", "-p", name, "-v", uri, "-E"]
     if driverless and not ppd:
         args += ["-m", "everywhere"]
@@ -242,32 +337,91 @@ def add_or_update_printer(
 
 
 def set_device_uri(name: str, uri: str) -> ToolResult:
-    """Repoint an existing printer at a new device URI (used by the healer)."""
+    """Update an existing printer to use the specified device URI.
+    
+    Parameters:
+        name (str): Printer name.
+        uri (str): New device URI.
+    
+    Returns:
+        ToolResult: The result of the `lpadmin` command.
+    """
     return run(["lpadmin", "-p", name, "-v", uri])
 
 
 def remove_printer(name: str) -> ToolResult:
+    """Remove a printer from CUPS.
+    
+    Parameters:
+    	name (str): Name of the printer to remove.
+    
+    Returns:
+    	ToolResult: Result of the CUPS removal command.
+    """
     return run(["lpadmin", "-x", name])
 
 
 def set_default(name: str) -> ToolResult:
+    """Set the default printer.
+    
+    Returns:
+        ToolResult: The result of the CUPS command.
+    """
     return run(["lpoptions", "-d", name])
 
 
 def set_enabled(name: str, enabled: bool) -> ToolResult:
+    """
+    Enable or disable a printer.
+    
+    Parameters:
+        name (str): Name of the printer to update.
+        enabled (bool): Whether the printer should accept print jobs.
+    
+    Returns:
+        ToolResult: Result of the CUPS command.
+    """
     return run(["cupsenable" if enabled else "cupsdisable", name])
 
 
 def set_accepting(name: str, accepting: bool) -> ToolResult:
+    """Set whether a printer accepts new jobs.
+    
+    Args:
+        name: The printer name.
+        accepting: Whether the printer should accept new jobs.
+    
+    Returns:
+        The command execution result.
+    """
     return run(["cupsaccept" if accepting else "cupsreject", name])
 
 
 def set_shared(name: str, shared: bool) -> ToolResult:
+    """Set whether a printer is shared with other clients.
+    
+    Parameters:
+    	name (str): The printer name.
+    	shared (bool): Whether the printer should be shared.
+    
+    Returns:
+    	ToolResult: The result of the CUPS command.
+    """
     return run(["lpadmin", "-p", name, "-o", f"printer-is-shared={'true' if shared else 'false'}"])
 
 
 def rename_printer(old_name: str, new_name: str, uri: str) -> ToolResult:
-    """CUPS has no rename primitive: add under the new name, drop the old one."""
+    """
+    Rename a CUPS printer by creating the new printer and removing the old one.
+    
+    Parameters:
+        old_name (str): Name of the existing printer.
+        new_name (str): Name for the new printer.
+        uri (str): Device URI for the new printer.
+    
+    Returns:
+        ToolResult: Result of creating the new printer.
+    """
     result = add_or_update_printer(new_name, uri)
     if result.ok:
         remove_printer(old_name)
@@ -292,6 +446,15 @@ _JOB_RE = re.compile(r"^(?P<id>\S+)\s+(?P<user>\S+)\s+(?P<size>\d+)\s")
 
 
 def parse_lpstat_o(output: str) -> list[Job]:
+    """
+    Parse CUPS job queue output into job records.
+    
+    Parameters:
+    	output (str): Raw text from the CUPS job listing command.
+    
+    Returns:
+    	list[Job]: Parsed jobs, including raw lines for entries with incomplete formats.
+    """
     jobs = []
     for line in output.splitlines():
         line = line.strip()
@@ -307,6 +470,14 @@ def parse_lpstat_o(output: str) -> list[Job]:
 
 
 def list_jobs(printer: str | None = None) -> list[Job]:
+    """List queued print jobs, optionally limited to a specific printer.
+    
+    Parameters:
+        printer (str | None): Name of the printer whose queued jobs should be listed.
+    
+    Returns:
+        list[Job]: Parsed queued print jobs.
+    """
     args = ["lpstat", "-o"]
     if printer:
         args.append(printer)
@@ -314,18 +485,50 @@ def list_jobs(printer: str | None = None) -> list[Job]:
 
 
 def cancel_job(job_id: str) -> ToolResult:
+    """Cancel a print job.
+    
+    Parameters:
+    	job_id (str): Identifier of the print job to cancel.
+    
+    Returns:
+    	ToolResult: The result of the CUPS cancel command.
+    """
     return run(["cancel", job_id])
 
 
 def hold_job(job_id: str) -> ToolResult:
+    """Place a print job on hold.
+    
+    Parameters:
+    	job_id (str): Identifier of the job to hold.
+    
+    Returns:
+    	ToolResult: The result of the CUPS command.
+    """
     return run(["lp", "-i", job_id, "-H", "hold"])
 
 
 def release_job(job_id: str) -> ToolResult:
+    """Resume a paused print job.
+    
+    Parameters:
+    	job_id (str): Identifier of the job to resume.
+    
+    Returns:
+    	ToolResult: The result of the CUPS command."""
     return run(["lp", "-i", job_id, "-H", "resume"])
 
 
 def move_job(job_id: str, destination_printer: str) -> ToolResult:
+    """Move a print job to a different printer.
+    
+    Parameters:
+    	job_id (str): Identifier of the print job to move.
+    	destination_printer (str): Name of the printer to receive the job.
+    
+    Returns:
+    	ToolResult: Result of the CUPS move operation.
+    """
     return run(["lpmove", job_id, destination_printer])
 
 

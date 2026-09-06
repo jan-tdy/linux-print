@@ -27,6 +27,13 @@ class _DiscoveryTab(QWidget):
     """Shared behaviour for the USB and network discovery tabs."""
 
     def __init__(self, categories: set[str], empty_hint: str, parent=None) -> None:
+        """
+        Initialize a discovery tab for the specified printer categories.
+        
+        Parameters:
+        	categories (set[str]): Printer categories to include in discovery results.
+        	empty_hint (str): Message displayed when no printers are available.
+        """
         super().__init__(parent)
         self.categories = categories
         self.list_widget = QListWidget()
@@ -41,6 +48,11 @@ class _DiscoveryTab(QWidget):
         self.on_selection_changed = None  # callback set by the dialog
 
     def refresh(self) -> None:
+        """
+        Refresh the list with printers discovered in the configured categories.
+        
+        Clears existing entries, displays a message when no matching printers are found, and warns when the required CUPS tools are unavailable.
+        """
         self.list_widget.clear()
         try:
             devices = discovery.discover_all()
@@ -59,10 +71,16 @@ class _DiscoveryTab(QWidget):
             self.list_widget.addItem(item)
 
     def _on_selection_changed(self) -> None:
+        """Notify the selection callback with the currently selected printer, when configured."""
         if self.on_selection_changed:
             self.on_selection_changed(self.selected_device())
 
     def selected_device(self) -> DiscoveredPrinter | None:
+        """Return the currently selected discovered printer, if any.
+        
+        Returns:
+        	DiscoveredPrinter | None: The selected printer, or `None` when no printer is selected.
+        """
         items = self.list_widget.selectedItems()
         if not items:
             return None
@@ -71,6 +89,9 @@ class _DiscoveryTab(QWidget):
 
 class _RemoteCupsTab(QWidget):
     def __init__(self, parent=None) -> None:
+        """
+        Initialize the remote CUPS server browsing interface.
+        """
         super().__init__(parent)
         self.server_edit = QLineEdit()
         self.server_edit.setPlaceholderText("napr. tlaciaren-server.local:631")
@@ -90,6 +111,9 @@ class _RemoteCupsTab(QWidget):
         self.on_selection_changed = None
 
     def browse(self) -> None:
+        """
+        Browse the remote CUPS server for available printers.
+        """
         server = self.server_edit.text().strip()
         if not server:
             QMessageBox.information(self, "Chýba adresa", "Zadaj adresu alebo hostname servera.")
@@ -111,10 +135,16 @@ class _RemoteCupsTab(QWidget):
             self.list_widget.addItem(item)
 
     def _on_selection_changed(self) -> None:
+        """Notify the selection callback with the currently selected printer, when configured."""
         if self.on_selection_changed:
             self.on_selection_changed(self.selected_device())
 
     def selected_device(self) -> DiscoveredPrinter | None:
+        """Return the currently selected discovered printer, if any.
+        
+        Returns:
+        	DiscoveredPrinter | None: The selected printer, or `None` when no printer is selected.
+        """
         items = self.list_widget.selectedItems()
         if not items:
             return None
@@ -123,6 +153,7 @@ class _RemoteCupsTab(QWidget):
 
 class AddPrinterDialog(QDialog):
     def __init__(self, parent=None) -> None:
+        """Initialize the add-printer dialog with discovery tabs and printer configuration fields."""
         super().__init__(parent)
         self.setWindowTitle("Pridať tlačiareň")
         self.resize(560, 480)
@@ -172,12 +203,18 @@ class AddPrinterDialog(QDialog):
         self.network_tab.refresh()
 
     def _on_device_selected(self, device: DiscoveredPrinter | None) -> None:
+        """Update the selected printer and enable confirmation when a printer is selected."""
         self.selected_device = device
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(device is not None)
         if device is not None and not self.name_edit.text().strip():
             self.name_edit.setText(discovery.suggest_queue_name(device.label))
 
     def accept(self) -> None:
+        """
+        Accept the dialog when a printer is selected and a queue name is provided.
+        
+        Displays a warning and leaves the dialog open when the queue name is empty.
+        """
         if self.selected_device is None:
             return
         if not self.name_edit.text().strip():
@@ -187,16 +224,30 @@ class AddPrinterDialog(QDialog):
 
     # Convenience accessors used by the caller once accepted:
     def queue_name(self) -> str:
+        """
+        Return the configured printer queue name.
+        
+        Returns:
+        	str: The queue name with leading and trailing whitespace removed.
+        """
         return self.name_edit.text().strip()
 
     def description(self) -> str:
+        """Return the printer description entered in the dialog."""
         return self.description_edit.text().strip()
 
     def location(self) -> str:
+        """Return the configured printer location."""
         return self.location_edit.text().strip()
 
     def shared(self) -> bool:
+        """Return whether printer sharing is enabled."""
         return self.shared_check.isChecked()
 
     def set_default(self) -> bool:
+        """Return whether the printer should be configured as the default printer.
+        
+        Returns:
+        	bool: `True` if the default-printer option is selected, `False` otherwise.
+        """
         return self.default_check.isChecked()

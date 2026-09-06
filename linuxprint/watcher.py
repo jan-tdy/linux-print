@@ -21,11 +21,20 @@ class Watcher(QObject):
     error = pyqtSignal(str)
 
     def __init__(self, settings: config.Settings | None = None) -> None:
+        """
+        Initialize the watcher with the provided settings or the application's loaded settings.
+        
+        Parameters:
+        	settings (config.Settings | None): Optional application settings. When omitted, settings are loaded automatically.
+        """
         super().__init__()
         self.settings = settings or config.load_settings()
         self._timer: QTimer | None = None
 
     def start(self) -> None:
+        """
+        Start periodic printer checks using the configured interval, with a minimum interval of five seconds, and run an immediate check.
+        """
         self._timer = QTimer()
         self._timer.setInterval(max(5, self.settings.check_interval_seconds) * 1000)
         self._timer.timeout.connect(self.run_cycle)
@@ -33,10 +42,14 @@ class Watcher(QObject):
         self.run_cycle()
 
     def update_interval(self, seconds: int) -> None:
+        """Update the watcher's timer interval, enforcing a minimum interval of five seconds."""
         if self._timer is not None:
             self._timer.setInterval(max(5, seconds) * 1000)
 
     def run_cycle(self) -> None:
+        """
+        Run a printer monitoring cycle and report cycle errors through the error signal.
+        """
         try:
             self._run_cycle()
         except cups_cli.CupsToolMissing as exc:
@@ -45,6 +58,11 @@ class Watcher(QObject):
             self.error.emit(f"Neočakávaná chyba pri kontrole tlačiarní: {exc}")
 
     def _run_cycle(self) -> None:
+        """
+        Run one printer discovery, reachability, and optional repair cycle.
+        
+        Emits the current installed printers, discovered printers, and unreachable network-printer statuses. When automatic healing is enabled, plans and applies required repairs and emits their results.
+        """
         installed = cups_cli.list_printers()
         self.printers_updated.emit(installed)
 
@@ -73,9 +91,17 @@ class Watcher(QObject):
 
 
 def start_watcher_thread(settings: config.Settings | None = None) -> tuple[QThread, Watcher]:
-    """Create and start a Watcher on its own thread. Caller must keep both
-    the returned thread and watcher alive (e.g. as attributes on a QObject
-    that outlives them) or Qt will garbage-collect and stop them."""
+    """
+    Create and start a watcher in a dedicated Qt thread.
+    
+    The caller must retain references to both returned objects for their lifetime.
+    
+    Parameters:
+        settings (config.Settings | None): Optional application settings.
+    
+    Returns:
+        tuple[QThread, Watcher]: The running thread and its watcher.
+    """
     thread = QThread()
     watcher = Watcher(settings)
     watcher.moveToThread(thread)

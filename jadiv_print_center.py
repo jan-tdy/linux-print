@@ -32,6 +32,15 @@ from linuxprint.ipc import SingleInstanceServer, notify_existing_instance
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    """
+    Parse application command-line options.
+    
+    Parameters:
+        argv (list[str]): Command-line arguments to parse.
+    
+    Returns:
+        argparse.Namespace: Parsed options, including whether daemon mode was requested.
+    """
     parser = argparse.ArgumentParser(description=config.APP_NAME)
     parser.add_argument(
         "--daemon",
@@ -42,6 +51,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    Run the Jadiv Print Center application in windowed or daemon mode.
+    
+    Parameters:
+        argv (list[str] | None): Command-line arguments to parse, excluding the
+            program name. If omitted, uses the process command-line arguments.
+    
+    Returns:
+        int: The application's exit status.
+    """
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
     if notify_existing_instance():

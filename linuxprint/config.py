@@ -9,6 +9,16 @@ from pathlib import Path
 
 
 def _xdg_dir(env_var: str, default: str) -> Path:
+    """
+    Resolve a directory path from an environment variable or a home-directory default.
+    
+    Parameters:
+        env_var (str): Name of the environment variable to inspect.
+        default (str): Relative default directory path under the user's home directory.
+    
+    Returns:
+        Path: The configured directory path, or the default path when the environment variable is unset or empty.
+    """
     value = os.environ.get(env_var)
     return Path(value) if value else Path.home() / default
 
@@ -35,16 +45,28 @@ class Settings:
     known_remote_servers: list[str] | None = None
 
     def __post_init__(self) -> None:
+        """Initialize the known remote server list when it was not provided."""
         if self.known_remote_servers is None:
             self.known_remote_servers = []
 
 
 def ensure_dirs() -> None:
+    """
+    Create the application configuration, data, and log directories if they do not exist.
+    """
     for path in (CONFIG_DIR, DATA_DIR, LOG_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 
 def load_settings() -> Settings:
+    """
+    Load application settings from the persisted settings file.
+    
+    Malformed, unreadable, or missing settings files result in default settings. Unrecognized fields are ignored.
+    
+    Returns:
+        Settings: The loaded settings or default settings when the file is unavailable or invalid.
+    """
     ensure_dirs()
     if not SETTINGS_FILE.exists():
         return Settings()
@@ -57,5 +79,8 @@ def load_settings() -> Settings:
 
 
 def save_settings(settings: Settings) -> None:
+    """
+    Persist application settings as formatted JSON.
+    """
     ensure_dirs()
     SETTINGS_FILE.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")

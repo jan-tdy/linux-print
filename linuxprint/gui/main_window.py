@@ -31,6 +31,12 @@ from .widgets import CATEGORY_LABELS, status_item
 
 class MainWindow(QMainWindow):
     def __init__(self, run_watcher: bool = True) -> None:
+        """
+        Initialize the main window, load settings, build the user interface, and optionally start the printer watcher.
+        
+        Parameters:
+        	run_watcher (bool): Whether to start the background printer watcher and connect its update signals.
+        """
         super().__init__()
         self.setWindowTitle(f"{config.APP_NAME} {config.APP_VERSION}")
         self.resize(900, 620)
@@ -53,10 +59,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         # Hide to tray instead of quitting, so the watcher keeps running.
+        """Hide the window when the close event is triggered, keeping the application running."""
         event.ignore()
         self.hide()
 
     def shutdown(self) -> None:
+        """
+        Stop the background watcher thread and wait up to two seconds for it to finish.
+        """
         if self.thread is not None:
             self.thread.quit()
             self.thread.wait(2000)
@@ -66,6 +76,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        """Builds the main window's tabbed user interface."""
         tabs = QTabWidget()
         tabs.addTab(self._build_printers_tab(), "Tlačiarne")
         tabs.addTab(self._build_queue_tab(), "Front úloh")
@@ -73,6 +84,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(tabs)
 
     def _build_printers_tab(self) -> QWidget:
+        """Builds the printer management tab with a printer table and action controls."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -103,6 +115,11 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_queue_tab(self) -> QWidget:
+        """Builds the queue tab with a job table and controls for managing print jobs.
+        
+        Returns:
+            QWidget: The configured queue tab widget.
+        """
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -132,6 +149,12 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_settings_tab(self) -> QWidget:
+        """
+        Builds the settings tab with watcher options, background service controls, and the repair log.
+        
+        Returns:
+        	QWidget: The configured settings tab.
+        """
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -187,26 +210,42 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_printers_updated(self, printers: dict[str, cups_cli.Printer]) -> None:
+        """Update the stored printer data and refresh the printer-related controls."""
         self._installed = printers
         self._render_printers_table()
         self._refresh_move_combo()
 
     def _on_unreachable_updated(self, unreachable: dict[str, bool]) -> None:
+        """Update printer reachability data and refresh the printer table."""
         self._unreachable = unreachable
         self._render_printers_table()
 
     def _on_repairs_applied(self, results: list[healer.RepairResult]) -> None:
+        """Log applied repair results and refresh the printer display."""
         for result in results:
             self._append_log(result.message)
         self._refresh_printers_now()
 
     def _on_watcher_error(self, message: str) -> None:
+        """
+        Record a watcher error message in the repair log.
+        
+        Parameters:
+        	message (str): The error message to record.
+        """
         self._append_log(f"CHYBA: {message}")
 
     def _append_log(self, message: str) -> None:
+        """
+        Append a message to the repair log view.
+        
+        Parameters:
+        	message (str): The message to display.
+        """
         self.log_view.append(message)
 
     def _load_log_tail(self) -> None:
+        """Load the last 200 lines of the healer log into the log view."""
         if not config.HEALER_LOG_FILE.exists():
             return
         lines = config.HEALER_LOG_FILE.read_text(encoding="utf-8").splitlines()[-200:]
@@ -217,6 +256,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _render_printers_table(self) -> None:
+        """Render the installed printers and their current status in the printer table."""
         table = self.printers_table
         table.setRowCount(len(self._installed))
         for row, (name, printer) in enumerate(sorted(self._installed.items())):
@@ -232,12 +272,23 @@ class MainWindow(QMainWindow):
             table.setItem(row, 4, QTableWidgetItem("Áno" if printer.is_default else ""))
 
     def _selected_printer_name(self) -> str | None:
+        """
+        Get the name of the selected printer.
+        
+        Returns:
+        	str | None: The selected printer name, or `None` when no printer is selected.
+        """
         rows = self.printers_table.selectionModel().selectedRows() if self.printers_table.selectionModel() else []
         if not rows:
             return None
         return self.printers_table.item(rows[0].row(), 0).text()
 
     def _refresh_printers_now(self) -> None:
+        """
+        Refresh the installed printer data and update the printer-related controls.
+        
+        Displays a warning and leaves the current data unchanged when the CUPS tools are unavailable.
+        """
         try:
             self._installed = cups_cli.list_printers()
         except CupsToolMissing as exc:
@@ -247,6 +298,11 @@ class MainWindow(QMainWindow):
         self._refresh_move_combo()
 
     def _on_add_printer(self) -> None:
+        """
+        Add a printer using the configuration provided by the add-printer dialog.
+        
+        If the operation fails, displays an error message and leaves printer state unchanged.
+        """
         dialog = AddPrinterDialog(self)
         if dialog.exec() != AddPrinterDialog.DialogCode.Accepted:
             return
@@ -268,6 +324,9 @@ class MainWindow(QMainWindow):
         self._refresh_printers_now()
 
     def _on_remove_printer(self) -> None:
+        """
+        Remove the selected printer after user confirmation.
+        """
         name = self._selected_printer_name()
         if not name:
             return
@@ -278,12 +337,18 @@ class MainWindow(QMainWindow):
         self._refresh_printers_now()
 
     def _on_set_default(self) -> None:
+        """Set the selected printer as the system default and refresh the printer list."""
         name = self._selected_printer_name()
         if name:
             cups_cli.set_default(name)
             self._refresh_printers_now()
 
     def _on_set_enabled(self, enabled: bool) -> None:
+        """Set the selected printer's enabled state and refresh the printer list.
+        
+        Parameters:
+        	enabled (bool): Whether the selected printer should be enabled.
+        """
         name = self._selected_printer_name()
         if name:
             cups_cli.set_enabled(name, enabled)
@@ -294,6 +359,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _refresh_jobs_now(self) -> None:
+        """Refresh the job queue table with the current print jobs."""
         jobs = cups_cli.list_jobs()
         table = self.jobs_table
         table.setRowCount(len(jobs))
@@ -304,6 +370,11 @@ class MainWindow(QMainWindow):
             table.setItem(row, 3, QTableWidgetItem(job.raw))
 
     def _refresh_move_combo(self) -> None:
+        """
+        Refresh the job destination selector with the installed printers.
+        
+        Preserves the currently selected printer when it remains available.
+        """
         current = self.move_combo.currentText()
         self.move_combo.clear()
         self.move_combo.addItems(sorted(self._installed.keys()))
@@ -312,30 +383,41 @@ class MainWindow(QMainWindow):
             self.move_combo.setCurrentIndex(index)
 
     def _selected_job_id(self) -> str | None:
+        """Return the identifier of the currently selected print job.
+        
+        Returns:
+        	str: The selected job identifier, or `None` when no job is selected.
+        """
         rows = self.jobs_table.selectionModel().selectedRows() if self.jobs_table.selectionModel() else []
         if not rows:
             return None
         return self.jobs_table.item(rows[0].row(), 0).text()
 
     def _on_cancel_job(self) -> None:
+        """Cancel the selected print job and refresh the job queue."""
         job_id = self._selected_job_id()
         if job_id:
             cups_cli.cancel_job(job_id)
             self._refresh_jobs_now()
 
     def _on_hold_job(self) -> None:
+        """
+        Places the selected print job on hold and refreshes the job queue.
+        """
         job_id = self._selected_job_id()
         if job_id:
             cups_cli.hold_job(job_id)
             self._refresh_jobs_now()
 
     def _on_release_job(self) -> None:
+        """Release the selected print job and refresh the displayed job queue."""
         job_id = self._selected_job_id()
         if job_id:
             cups_cli.release_job(job_id)
             self._refresh_jobs_now()
 
     def _on_move_job(self) -> None:
+        """Moves the selected print job to the chosen destination printer."""
         job_id = self._selected_job_id()
         destination = self.move_combo.currentText()
         if job_id and destination:
@@ -347,6 +429,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_save_settings(self) -> None:
+        """
+        Save the current monitoring settings and apply them to the active watcher.
+        """
         self.settings.check_interval_seconds = self.interval_spin.value()
         self.settings.autoheal_enabled = self.autoheal_check.isChecked()
         self.settings.notifications_enabled = self.notify_check.isChecked()
@@ -357,6 +442,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Uložené", "Nastavenia boli uložené.")
 
     def _refresh_service_status(self) -> None:
+        """Update the displayed status of the systemd user service."""
         if not servicectl.is_installed():
             self.service_status_label.setText("Služba nie je nainštalovaná (spusti install-service.sh).")
             return
@@ -365,17 +451,21 @@ class MainWindow(QMainWindow):
         self.service_status_label.setText(f"Stav: {active}, {enabled}.")
 
     def _on_service_start(self) -> None:
+        """Start the systemd user service and refresh its displayed status."""
         servicectl.start()
         self._refresh_service_status()
 
     def _on_service_stop(self) -> None:
+        """Stops the systemd user service and refreshes its displayed status."""
         servicectl.stop()
         self._refresh_service_status()
 
     def _on_service_enable(self) -> None:
+        """Enables the systemd user service and refreshes its displayed status."""
         servicectl.enable_now()
         self._refresh_service_status()
 
     def _on_service_disable(self) -> None:
+        """Disable automatic startup of the systemd user service and refresh its displayed status."""
         servicectl.disable_now()
         self._refresh_service_status()

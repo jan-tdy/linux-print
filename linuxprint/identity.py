@@ -22,6 +22,12 @@ class IdentityRecord:
 
 
 def load_map() -> dict[str, IdentityRecord]:
+    """
+    Load persisted printer identity records from the identity file.
+    
+    Returns:
+    	dict[str, IdentityRecord]: A mapping of printer names to valid identity records. Empty if the file is missing, unreadable, invalid, or contains no valid records.
+    """
     config.ensure_dirs()
     if not config.IDENTITY_FILE.exists():
         return {}
@@ -39,12 +45,25 @@ def load_map() -> dict[str, IdentityRecord]:
 
 
 def save_map(records: dict[str, IdentityRecord]) -> None:
+    """
+    Persist printer identity records to the configured identity file.
+    
+    Parameters:
+    	records (dict[str, IdentityRecord]): Mapping of printer names to identity records.
+    """
     config.ensure_dirs()
     payload = {name: asdict(record) for name, record in records.items()}
     config.IDENTITY_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def remember(name: str, discovered: DiscoveredPrinter) -> None:
+    """
+    Record a discovered printer's identity information under the specified name.
+    
+    Parameters:
+    	name (str): The printer name used as the mapping key.
+    	discovered (DiscoveredPrinter): The discovered printer metadata to store.
+    """
     records = load_map()
     records[name] = IdentityRecord(
         identity_key=discovered.identity_key,
@@ -56,6 +75,11 @@ def remember(name: str, discovered: DiscoveredPrinter) -> None:
 
 
 def forget(name: str) -> None:
+    """Remove the stored identity record for a printer name, if present.
+    
+    Parameters:
+    	name (str): The printer name whose identity record should be removed.
+    """
     records = load_map()
     if name in records:
         del records[name]

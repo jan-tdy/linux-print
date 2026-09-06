@@ -24,6 +24,15 @@ STATE_LABELS = {
 
 
 def status_item(state: str) -> QTableWidgetItem:
+    """
+    Create a color-coded, vertically centered table item for a printer state.
+    
+    Parameters:
+    	state (str): Printer state used to select the displayed label and foreground color.
+    
+    Returns:
+    	QTableWidgetItem: Table item displaying the localized state label when available, or the raw state otherwise.
+    """
     item = QTableWidgetItem(STATE_LABELS.get(state, state))
     item.setForeground(QColor(STATE_COLORS.get(state, STATE_COLORS["unknown"])))
     item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)

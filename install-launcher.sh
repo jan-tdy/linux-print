@@ -19,6 +19,7 @@ ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 DESKTOP_FILE=jadiv-print-center.desktop
 ICON_NAME=jadiv-print-center.svg
 
+# update_caches refreshes the desktop-entry database and GTK icon cache when the required commands are available.
 update_caches() {
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
@@ -28,6 +29,7 @@ update_caches() {
             >/dev/null 2>&1 || true
 }
 
+# do_uninstall removes the per-user Jadiv Print Center desktop launcher and icon, then refreshes relevant caches.
 do_uninstall() {
     rm -f "$APP_DIR/$DESKTOP_FILE"
     rm -f "$ICON_DIR/$ICON_NAME"
@@ -35,6 +37,7 @@ do_uninstall() {
     echo "Removed Jadiv Print Center launcher."
 }
 
+# do_install installs the Jadiv Print Center desktop launcher and icon for the current user.
 do_install() {
     # Sanity check: make sure the app and its dependencies are reachable.
     if ! command -v python3 >/dev/null 2>&1; then

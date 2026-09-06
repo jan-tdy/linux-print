@@ -37,6 +37,15 @@ class DiscoveredPrinter:
 
 def _usb_label_and_key(uri: str) -> tuple[str, str]:
     # usb://EPSON/L3150%20Series?serial=581234&interface=1
+    """
+    Builds a human-readable label and stable identity key from a USB printer URI.
+    
+    Parameters:
+        uri (str): USB printer URI containing make/model information and an optional serial number.
+    
+    Returns:
+        tuple[str, str]: The printer label and identity key.
+    """
     parts = urlsplit(uri)
     make_model = unquote(parts.netloc + parts.path).strip("/").replace("/", " ")
     query = parse_qs(parts.query)
@@ -48,6 +57,15 @@ def _usb_label_and_key(uri: str) -> tuple[str, str]:
 
 def _dnssd_label_and_key(uri: str) -> tuple[str, str]:
     # dnssd://Brother%20HL-2270DW._ipp._tcp.local/?uuid=...
+    """
+    Derive a human-readable label and stable identity key from an mDNS printer URI.
+    
+    Parameters:
+        uri (str): The mDNS printer URI.
+    
+    Returns:
+        tuple[str, str]: The printer label and identity key.
+    """
     parts = urlsplit(uri)
     instance = unquote(parts.netloc)
     query = parse_qs(parts.query)
@@ -59,6 +77,15 @@ def _dnssd_label_and_key(uri: str) -> tuple[str, str]:
 
 def _ip_label_and_key(uri: str) -> tuple[str, str, str, int | None]:
     # ipp://192.168.1.50:631/ipp/print , socket://192.168.1.50:9100
+    """
+    Build a connection label and stable identity key from an IP-based printer URI.
+    
+    Parameters:
+    	uri (str): IP-based printer URI to parse.
+    
+    Returns:
+    	tuple[str, str, str, int | None]: The connection label, identity key, host, and optional port.
+    """
     parts = urlsplit(uri)
     host = parts.hostname or ""
     port = parts.port
@@ -73,6 +100,15 @@ def _ip_label_and_key(uri: str) -> tuple[str, str, str, int | None]:
 
 
 def classify(uri: str) -> DiscoveredPrinter | None:
+    """
+    Classify a printer URI and derive its discovery metadata.
+    
+    Parameters:
+    	uri (str): Printer device URI to classify.
+    
+    Returns:
+    	DiscoveredPrinter | None: Printer metadata for the URI, or `None` if the URI has no scheme.
+    """
     if ":" not in uri:
         return None
     scheme = uri.split(":", 1)[0]
@@ -93,8 +129,12 @@ def classify(uri: str) -> DiscoveredPrinter | None:
 
 
 def discover_all() -> list[DiscoveredPrinter]:
-    """Everything `lpinfo -v` currently sees: USB, mDNS/dnssd, and raw-IP
-    network devices. Requires the `cups-client` package."""
+    """
+    Discover and classify all printer devices reported by CUPS.
+    
+    Returns:
+    	list[DiscoveredPrinter]: Classified devices with valid supported URIs.
+    """
     devices = cups_cli.lpinfo_devices()
     result = []
     for device in devices:
@@ -108,13 +148,29 @@ _SANITIZE_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def suggest_queue_name(label: str) -> str:
-    """Turn a human label into a CUPS-legal printer name."""
+    """
+    Convert a human-readable printer label into a CUPS-compatible queue name.
+    
+    Parameters:
+        label (str): Human-readable printer label.
+    
+    Returns:
+        str: Sanitized queue name, or ``"printer"`` when the label contains no usable characters.
+    """
     name = _SANITIZE_RE.sub("-", label).strip("-")
     return name or "printer"
 
 
 def list_remote_server_printers(server: str) -> list[DiscoveredPrinter]:
-    """Printers shared by a specific remote CUPS server the user points at."""
+    """
+    List printers shared by a remote CUPS server.
+    
+    Parameters:
+    	server (str): The hostname or address of the remote CUPS server.
+    
+    Returns:
+    	list[DiscoveredPrinter]: Discovered printers exposed by the server.
+    """
     names = cups_cli.list_remote_printers(server)
     result = []
     for name in names:

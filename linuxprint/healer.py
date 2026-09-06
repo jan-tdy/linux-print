@@ -80,6 +80,15 @@ def plan_repairs(
 
 
 def apply_repairs(repairs: list[Repair]) -> list[RepairResult]:
+    """
+    Apply planned printer repairs and collect their outcomes.
+    
+    Parameters:
+    	repairs (list[Repair]): Repairs to apply.
+    
+    Returns:
+    	list[RepairResult]: The result of each repair, including its success status and message.
+    """
     results = []
     for repair in repairs:
         result = cups_cli.set_device_uri(repair.printer_name, repair.new_uri)
@@ -89,8 +98,16 @@ def apply_repairs(repairs: list[Repair]) -> list[RepairResult]:
 
 
 def is_host_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
-    """Quick TCP reachability probe, used to flag printers as offline in the
-    UI even when we can't (or shouldn't) touch their CUPS configuration."""
+    """Determine whether a host accepts a TCP connection on the specified port.
+    
+    Parameters:
+        host (str): Hostname or IP address to probe.
+        port (int): TCP port to probe.
+        timeout (float): Maximum time to wait for the connection, in seconds.
+    
+    Returns:
+        bool: `true` if the connection succeeds or the host or port is empty, `false` if the connection fails.
+    """
     if not host or not port:
         return True
     try:
@@ -101,10 +118,25 @@ def is_host_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
 
 
 def log_line(message: str) -> str:
+    """
+    Format a message with the current local timestamp.
+    
+    Parameters:
+    	message (str): The message to format.
+    
+    Returns:
+    	str: The timestamped message.
+    """
     return f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
 
 
 def append_log(message: str) -> None:
+    """
+    Append a timestamped message to the healer log file.
+    
+    Parameters:
+        message (str): The message to append.
+    """
     from . import config
 
     config.ensure_dirs()

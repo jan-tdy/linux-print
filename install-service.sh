@@ -19,6 +19,7 @@ ASSETS_DIR="$REPO_DIR/assets"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_FILE=jadiv-print-center-daemon.service
 
+# do_uninstall stops and removes the Jadiv Print Center systemd user service.
 do_uninstall() {
     systemctl --user disable --now "$UNIT_FILE" >/dev/null 2>&1 || true
     rm -f "$UNIT_DIR/$UNIT_FILE"
@@ -26,6 +27,7 @@ do_uninstall() {
     echo "Removed the Jadiv Print Center background service."
 }
 
+# do_install installs and starts the Jadiv Print Center systemd user service.
 do_install() {
     if ! command -v systemctl >/dev/null 2>&1; then
         echo "Error: systemctl not found -- this system doesn't use systemd." >&2
