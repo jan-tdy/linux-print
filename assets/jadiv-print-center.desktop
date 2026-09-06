@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Jadiv Print Center
+Comment=USB, network and remote-CUPS printer manager with autodiscovery and self-healing
+Comment[sk]=Správca USB, sieťových a vzdialených CUPS tlačiarní s autodiscovery a samoopravou
+Exec=python3 "__INSTALL_DIR__/jadiv_print_center.py"
+Path=__INSTALL_DIR__
+Icon=jadiv-print-center
+Terminal=false
+Categories=Settings;HardwareSettings;Printing;
+Keywords=printer;print;cups;usb;network;autodiscovery;tlaciaren;tlac;
+StartupNotify=true

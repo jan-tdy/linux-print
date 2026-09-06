@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "publisher": "jan-tdy",
+  "repo": "linux-print",
+  "homepage": "https://github.com/jan-tdy/linux-print",
+  "apps": [
+    {
+      "id": "jadiv-print-center",
+      "name": "Jadiv Print Center",
+      "tagline": "Self-healing USB/network/remote-CUPS printer manager",
+      "description": "A PyQt6 print manager for Ubuntu/Kubuntu 24.04+ covering USB, network and remote CUPS server printers, with autodiscovery and a background watcher that repairs printers whose IP address or port changed -- the usual reason the stock Linux print stack works once and then quietly stops.",
+      "category": "Utilities",
+      "version": "1.0.0",
+      "author": "JapySoft TDY",
+      "icon": "assets/jadiv-print-center.svg",
+      "subdir": ".",
+      "entrypoint": "jadiv_print_center.py",
+      "run": "python3 jadiv_print_center.py",
+      "requirements": "requirements.txt",
+      "update_method": "sync",
+      "maintained": true
+    }
+  ]
+}
