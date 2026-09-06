@@ -58,6 +58,17 @@ def ensure_dirs() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
+# Expected type for each Settings field, used to reject a corrupt or
+# hand-edited settings.json instead of crashing later (e.g. the watcher
+# doing arithmetic on a check_interval_seconds that turned out to be a str).
+_FIELD_TYPES: dict[str, type] = {
+    "check_interval_seconds": int,
+    "notifications_enabled": bool,
+    "autoheal_enabled": bool,
+    "known_remote_servers": list,
+}
+
+
 def load_settings() -> Settings:
     """
     Load application settings from the persisted settings file.
@@ -74,8 +85,21 @@ def load_settings() -> Settings:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return Settings()
-    fields = {f for f in Settings.__dataclass_fields__}
-    return Settings(**{k: v for k, v in data.items() if k in fields})
+    if not isinstance(data, dict):
+        return Settings()
+    valid = {}
+    for key, value in data.items():
+        expected = _FIELD_TYPES.get(key)
+        if expected is None:
+            continue
+        # bool is a subclass of int, so check it first: without this an
+        # int field would also accept True/False, and a bool field would
+        # accept 0/1.
+        if expected is bool and isinstance(value, bool):
+            valid[key] = value
+        elif expected is not bool and isinstance(value, expected):
+            valid[key] = value
+    return Settings(**valid)
 
 
 def save_settings(settings: Settings) -> None:

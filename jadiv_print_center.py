@@ -63,14 +63,30 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
-    if notify_existing_instance():
-        return 0
-
     config.ensure_dirs()
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName(config.APP_NAME)
+
+    # Acquire single-instance ownership *before* building the window and
+    # starting a watcher thread. Trying to notify a peer first and only
+    # listening if that fails (the previous approach) is a race: two
+    # processes launched close together could both fail to find a peer and
+    # both go on to become "the" instance, each with its own CUPS watcher.
+    ipc_server = SingleInstanceServer()
+    if not ipc_server.listen():
+        if notify_existing_instance():
+            return 0
+        # listen() failed but nobody answered either -- the socket path was
+        # left behind by a previous crash. Safe to reclaim it now.
+        if not ipc_server.remove_stale_and_retry():
+            QMessageBox.critical(
+                None,
+                "Nepodarilo sa spustiť",
+                "Jadiv Print Center sa nepodarilo spustiť (zlyhalo IPC spojenie).",
+            )
+            return 1
 
     if not is_available("lpstat") or not is_available("lpadmin"):
         QMessageBox.critical(
@@ -93,10 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     main_window = MainWindow(run_watcher=True)
     tray = TrayIcon(main_window, app)
     tray.show()
-
-    ipc_server = SingleInstanceServer()
     ipc_server.show_requested.connect(tray.show_main_window)
-    ipc_server.listen()
 
     if args.daemon:
         watcher = main_window.watcher

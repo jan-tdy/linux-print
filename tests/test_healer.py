@@ -74,3 +74,60 @@ def test_plan_repairs_no_op_when_uri_unchanged():
 def test_plan_repairs_ignores_printer_removed_outside_tool():
     identities = {"Gone": IdentityRecord("ip:ipp:/x", "network-ip", "ipp://1.2.3.4/x", 0.0)}
     assert plan_repairs({}, [], identities) == []
+
+
+def test_plan_repairs_skips_ambiguous_shared_identity_two_installed_printers():
+    """Two distinct physical printers can share one raw-IP identity key (it
+    deliberately excludes the host). Repairing either would be a guess that
+    could misdirect print jobs, so neither should be touched."""
+    installed = {
+        "Office_A": Printer(name="Office_A", uri="ipp://192.168.1.50:631/ipp/print"),
+        "Office_B": Printer(name="Office_B", uri="ipp://192.168.1.51:631/ipp/print"),
+    }
+    discovered = [
+        DiscoveredPrinter(
+            uri="ipp://192.168.1.99:631/ipp/print",
+            scheme="ipp",
+            category="network-ip",
+            label="x",
+            identity_key="ip:ipp:/ipp/print",
+            host="192.168.1.99",
+            port=631,
+        )
+    ]
+    identities = {
+        "Office_A": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0),
+        "Office_B": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.51:631/ipp/print", 0.0),
+    }
+    assert plan_repairs(installed, discovered, identities) == []
+
+
+def test_plan_repairs_skips_ambiguous_duplicate_discovered_devices():
+    """Two devices discovered under the same identity key (e.g. two printers
+    sharing a default resource path) must not be repaired either, even with
+    a single installed printer recorded for that key."""
+    installed = {"Office_Printer": Printer(name="Office_Printer", uri="ipp://192.168.1.50:631/ipp/print")}
+    discovered = [
+        DiscoveredPrinter(
+            uri="ipp://192.168.1.60:631/ipp/print",
+            scheme="ipp",
+            category="network-ip",
+            label="a",
+            identity_key="ip:ipp:/ipp/print",
+            host="192.168.1.60",
+            port=631,
+        ),
+        DiscoveredPrinter(
+            uri="ipp://192.168.1.61:631/ipp/print",
+            scheme="ipp",
+            category="network-ip",
+            label="b",
+            identity_key="ip:ipp:/ipp/print",
+            host="192.168.1.61",
+            port=631,
+        ),
+    ]
+    identities = {
+        "Office_Printer": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0)
+    }
+    assert plan_repairs(installed, discovered, identities) == []

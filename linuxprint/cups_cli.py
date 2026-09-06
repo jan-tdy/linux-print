@@ -332,7 +332,9 @@ def add_or_update_printer(
     if accept:
         run(["cupsaccept", name])
     if set_default:
-        run(["lpoptions", "-d", name])
+        default_result = run(["lpoptions", "-d", name])
+        if not default_result.ok:
+            return default_result
     return result
 
 

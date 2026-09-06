@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -58,10 +60,18 @@ class MainWindow(QMainWindow):
             self.watcher.error.connect(self._on_watcher_error)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        # Hide to tray instead of quitting, so the watcher keeps running.
-        """Hide the window when the close event is triggered, keeping the application running."""
-        event.ignore()
-        self.hide()
+        """Hide to tray on close when one is available; otherwise this is
+        the user's only exit path, so actually quit instead of leaving a
+        hidden, unreachable window with a watcher nothing can stop."""
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            event.ignore()
+            self.hide()
+        else:
+            self.shutdown()
+            event.accept()
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
 
     def shutdown(self) -> None:
         """
@@ -332,7 +342,10 @@ class MainWindow(QMainWindow):
             return
         if QMessageBox.question(self, "Odstrániť", f"Naozaj odstrániť tlačiareň '{name}'?") != QMessageBox.StandardButton.Yes:
             return
-        cups_cli.remove_printer(name)
+        result = cups_cli.remove_printer(name)
+        if not result.ok:
+            QMessageBox.critical(self, "Odstránenie zlyhalo", result.stderr or "Neznáma chyba lpadmin.")
+            return
         identity.forget(name)
         self._refresh_printers_now()
 

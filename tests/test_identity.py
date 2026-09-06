@@ -29,3 +29,15 @@ def test_load_map_missing_file_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "IDENTITY_FILE", tmp_path / "does-not-exist.json")
     monkeypatch.setattr(config, "ensure_dirs", lambda: None)
     assert identity.load_map() == {}
+
+
+def test_load_map_returns_empty_for_non_dict_json(tmp_path, monkeypatch):
+    identity_file = tmp_path / "printers.json"
+    monkeypatch.setattr(config, "IDENTITY_FILE", identity_file)
+    monkeypatch.setattr(config, "ensure_dirs", lambda: None)
+
+    identity_file.write_text("[]", encoding="utf-8")
+    assert identity.load_map() == {}
+
+    identity_file.write_text("null", encoding="utf-8")
+    assert identity.load_map() == {}

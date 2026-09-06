@@ -12,20 +12,28 @@ SERVICE_NAME = f"{APP_ID}-daemon.service"
 def _systemctl(*args: str) -> subprocess.CompletedProcess:
     """
     Run a user-level systemctl command for the service.
-    
+
     Parameters:
     	args (str): Arguments passed to systemctl before the service name.
-    
+
     Returns:
-    	subprocess.CompletedProcess: The completed systemctl command result.
+    	subprocess.CompletedProcess: The completed systemctl command result,
+    	or a synthetic failed result if systemctl is missing or times out.
     """
-    return subprocess.run(
-        ["systemctl", "--user", *args, SERVICE_NAME],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
+    command = ["systemctl", "--user", *args, SERVICE_NAME]
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # No systemd on this system, or it didn't answer in time -- report
+        # it as a failed command instead of letting the exception abort
+        # whatever GUI action (e.g. building the settings tab) called us.
+        return subprocess.CompletedProcess(command, -1, "", str(exc))
 
 
 def is_installed() -> bool:

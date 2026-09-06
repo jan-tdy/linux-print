@@ -35,6 +35,8 @@ def load_map() -> dict[str, IdentityRecord]:
         raw = json.loads(config.IDENTITY_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
     records = {}
     for name, value in raw.items():
         try:

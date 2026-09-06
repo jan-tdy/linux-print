@@ -47,10 +47,22 @@ def plan_repairs(
     them would only add risk for no benefit. Only printers pinned to a raw
     IP/port (ipp://, ipps://, socket://, lpd://) that we have a recorded
     identity for are candidates for repair.
+
+    A raw-IP identity key deliberately excludes the host (see
+    :mod:`discovery`), so two *different* physical printers can end up
+    sharing one key (e.g. two office printers both serving
+    ``ipp://.../ipp/print``). Repairing in that situation would be a guess
+    that could silently redirect one printer's jobs to another device, so a
+    repair is only ever proposed for a key that maps to exactly one
+    installed printer *and* exactly one currently discovered device.
     """
-    by_key: dict[str, DiscoveredPrinter] = {}
+    discovered_by_key: dict[str, list[DiscoveredPrinter]] = {}
     for device in discovered:
-        by_key.setdefault(device.identity_key, device)
+        discovered_by_key.setdefault(device.identity_key, []).append(device)
+
+    installed_names_by_key: dict[str, list[str]] = {}
+    for name, record in identities.items():
+        installed_names_by_key.setdefault(record.identity_key, []).append(name)
 
     repairs: list[Repair] = []
     for name, record in identities.items():
@@ -60,9 +72,12 @@ def plan_repairs(
         current_scheme = printer.uri.split(":", 1)[0] if ":" in printer.uri else ""
         if current_scheme not in IP_PINNED_SCHEMES:
             continue
-        match = by_key.get(record.identity_key)
-        if match is None:
-            continue
+        if len(installed_names_by_key.get(record.identity_key, [])) != 1:
+            continue  # ambiguous: another installed printer shares this identity
+        matches = discovered_by_key.get(record.identity_key, [])
+        if len(matches) != 1:
+            continue  # no match, or more than one device claims this identity
+        match = matches[0]
         if match.uri == printer.uri:
             continue
         repairs.append(

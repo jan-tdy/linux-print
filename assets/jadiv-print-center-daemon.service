@@ -2,12 +2,21 @@
 Description=Jadiv Print Center -- background printer autodiscovery & self-healing
 After=graphical-session.target
 Wants=graphical-session.target
+# If PyQt6 (or the display) never becomes available, stop retrying after a
+# handful of attempts instead of restart-looping forever every RestartSec.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 "__INSTALL_DIR__/jadiv_print_center.py" --daemon
+# Resolved via PATH, not hardcoded to /usr/bin/python3: install-launcher.sh
+# validates PyQt6 against whichever interpreter "python3" resolves to (same
+# as the desktop launcher's Exec= line), so the daemon must use that same
+# interpreter or it can fail to import PyQt6 even when the launcher's check
+# passed.
+ExecStart=/usr/bin/env python3 "__INSTALL_DIR__/jadiv_print_center.py" --daemon
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 
 [Install]
 WantedBy=graphical-session.target
