@@ -525,9 +525,29 @@ def list_jobs(printer: str | None = None) -> list[Job]:
     return parse_lpstat_o(run(args).stdout)
 
 
+def submit_print_job(printer: str, file_path: str, *, title: str | None = None) -> ToolResult:
+    """Submit a file to a printer's queue (used by the Plotter tab's
+    "print" step of print-and-cut, and available for anything else that
+    needs to print an already-rendered file rather than manage a printer).
+
+    Parameters:
+        printer (str): Destination printer name.
+        file_path (str): Path to the file to print.
+        title (str | None): Optional job title shown in the queue.
+
+    Returns:
+        ToolResult: The result of the `lp` command.
+    """
+    args = ["lp", "-d", printer]
+    if title:
+        args += ["-t", title]
+    args.append(file_path)
+    return run(args)
+
+
 def cancel_job(job_id: str) -> ToolResult:
     """Cancel a print job.
-    
+
     Parameters:
     	job_id (str): Identifier of the print job to cancel.
     

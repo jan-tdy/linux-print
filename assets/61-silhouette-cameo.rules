@@ -1,0 +1,20 @@
+# udev rule granting non-root USB access to Silhouette Cameo cutters, so
+# the Plotter tab can talk to the device without running as root.
+#
+# Adapted from fablabnbg/inkscape-silhouette's silhouette-udev.rules
+# (https://github.com/fablabnbg/inkscape-silhouette, commit
+# d8f067b2e649f32eb699bb1fa24385101956f149), trimmed to the Cameo 4/5
+# family this integration's Plotter tab targets -- see
+# linuxprint/plotter/vendor/inkscape_silhouette/NOTICE.md for full credits.
+# USB vendor/product IDs are plain device facts, not copyrightable
+# expression, so this trimmed rule file is provided under the same MIT
+# license as the rest of this repository.
+
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1137", MODE="666"  # Cameo 4
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1138", MODE="666"  # Cameo 4 Plus
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1139", MODE="666"  # Cameo 4 Pro
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1140", MODE="666"  # Cameo 5
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1141", MODE="666"  # Cameo 5 Plus
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1146", MODE="666"  # Cameo Pro Mk II
+ATTRS{idVendor}=="3844", ATTRS{idProduct}=="0001", MODE="666"  # Cameo 5 Alpha
+ATTRS{idVendor}=="3844", ATTRS{idProduct}=="0002", MODE="666"  # Cameo 5 Alpha Plus

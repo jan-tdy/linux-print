@@ -68,6 +68,14 @@ do_install() {
         echo "     'externally-managed-environment', or use" >&2
         echo "     'sudo apt install python3-pyqt6')" >&2
     fi
+    if ! python3 -c "import usb, svgelements" >/dev/null 2>&1; then
+        echo "Warning: pyusb and/or svgelements are not installed (needed for the" >&2
+        echo "Plotter tab -- printing still works without them). Install with:" >&2
+        printf '    python3 -m pip install --user -r %q\n' \
+            "$REPO_DIR/requirements.txt" >&2
+        echo "    (add --break-system-packages if pip refuses with" >&2
+        echo "     'externally-managed-environment')" >&2
+    fi
     if ! command -v lpadmin >/dev/null 2>&1; then
         echo "Warning: 'lpadmin' not found. Install CUPS with:" >&2
         echo "    sudo apt install cups cups-client" >&2

@@ -28,6 +28,7 @@ from .. import config, cups_cli, discovery, healer, identity, servicectl
 from ..cups_cli import CupsToolMissing
 from ..watcher import start_watcher_thread
 from .add_wizard import AddPrinterDialog
+from .plotter_tab import PlotterTab
 from .widgets import CATEGORY_LABELS, status_item
 
 
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_printers_tab(), "Tlačiarne")
         tabs.addTab(self._build_queue_tab(), "Front úloh")
         tabs.addTab(self._build_settings_tab(), "Denník a nastavenia")
+        tabs.addTab(PlotterTab(), "Plotter (Cameo)")
         self.setCentralWidget(tabs)
 
     def _build_printers_tab(self) -> QWidget:
