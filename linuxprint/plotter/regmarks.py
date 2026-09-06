@@ -25,11 +25,12 @@ cut.
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import xml.etree.ElementTree as ET
 
-from defusedxml.ElementTree import parse as safe_parse
+from defusedxml.ElementTree import fromstring as safe_fromstring
 from svgelements import SVG, Matrix, Point
 
 from .job import RegmarkSettings
@@ -73,7 +74,7 @@ def render_regmarks_svg(settings: RegmarkSettings, page_width_mm: float, page_he
     )
 
 
-def _inverse_viewbox_transform(svg_path: str) -> Matrix:
+def _inverse_viewbox_transform(svg_content: bytes) -> Matrix:
     """Return the transform that maps a point in the document's physical
     CSS-pixel space (its width/height attributes, at 96 user units per
     inch, with no viewBox involved) into the *user units* its root <svg>
@@ -95,8 +96,15 @@ def _inverse_viewbox_transform(svg_path: str) -> Matrix:
     inverse is used here rather than hand-rolling (and getting wrong) that
     same math. With no viewBox at all, svgelements reports an identity
     transform, which correctly leaves CSS pixels as-is.
+
+    Takes already-read bytes rather than a path: svgelements' own parser
+    isn't hardened against XXE, so it must run against the exact same
+    content defusedxml already validated, not re-read the file from disk a
+    second time (which would both risk a TOCTOU swap of validated content
+    for a malicious payload, and could silently compute the transform from
+    different content than what's actually written out).
     """
-    svg = SVG.parse(svg_path)
+    svg = SVG.parse(io.BytesIO(svg_content))
     matrix = Matrix(svg.viewbox_transform)
     matrix.inverse()
     return matrix
@@ -111,13 +119,21 @@ def merge_svg_with_regmarks(svg_path: str, settings: RegmarkSettings) -> str:
     """Copy svg_path to a temp file with the registration squares appended
     as extra <rect> elements, ready to print. Returns the temp file path;
     the caller is responsible for deleting it once printing is done."""
-    # Reject a malicious DOCTYPE (XXE / entity expansion) via defusedxml
-    # before svgelements' own (unhardened) parser ever touches the file.
-    ET.register_namespace("", _SVG_NS)
-    tree = safe_parse(svg_path)
-    root = tree.getroot()
+    # Read the file exactly once and validate that one snapshot with
+    # defusedxml (XXE / entity-expansion hardening) -- both the output tree
+    # and the viewBox transform are then derived from these same bytes, so
+    # there's no window for the file to change between two separate reads
+    # (which could smuggle an unvalidated payload into svgelements' own
+    # unhardened parser, or compute the transform from different content
+    # than what actually gets written out).
+    with open(svg_path, "rb") as f:
+        svg_content = f.read()
 
-    inverse_transform = _inverse_viewbox_transform(svg_path)
+    ET.register_namespace("", _SVG_NS)
+    root = safe_fromstring(svg_content)
+    tree = ET.ElementTree(root)
+
+    inverse_transform = _inverse_viewbox_transform(svg_content)
     for x_mm, y_mm in regmark_points_mm(settings):
         x0, y0 = _mm_to_user_units(inverse_transform, x_mm, y_mm)
         # Transform a corner-to-corner vector rather than scaling MARK_SIZE_MM
