@@ -3,7 +3,9 @@
 A PyQt6 print manager for **Ubuntu / Kubuntu 24.04+** (and any modern
 CUPS-based distro) that handles USB, network and remote-CUPS-server
 printers with autodiscovery -- and, unlike the stock Linux print stack,
-keeps working after a printer's IP address or port changes.
+keeps working after a printer's IP address or port changes. It also has a
+**Plotter tab** for Silhouette Cameo cutting plotters (USB, Cameo 4/5
+family) -- SVG import, cut/pen, and print-and-cut.
 
 Made by JapySoft TDY.
 
@@ -81,11 +83,61 @@ what makes this different from the vanilla CUPS experience: you get
 visibility into *why* a printer stopped working, and automatic recovery
 for the common case.
 
+## Plotter tab (Silhouette Cameo)
+
+USB-only for now. Targets the Cameo 4/5 family: Cameo 4 / 4 Plus / 4 Pro,
+Cameo 5 / 5 Plus / 5 Alpha / 5 Alpha Plus, Cameo Pro Mk II (the actual
+device table -- see Credits below -- also lists Portrait 2/3/4 and older
+Cameo/SD/Craft Robo models, which should work too even though this tab's
+own quick "is anything plugged in" status check doesn't name them).
+
+- **Load SVG** -- parses paths, shapes and curves (flattened to line
+  segments) via `svgelements`. Convention: a **red stroke** (`#ff0000`)
+  means *cut with the blade*; anything else (including a shape with no
+  stroke at all) means *draw with the pen*. Draw a guide line in a
+  different color than red if you want it drawn, not cut.
+- **Cut** / **Draw with pen** -- send the cut or pen paths to the cutter.
+  Force (blade pressure / pen pressure) and speed are adjustable; media
+  presets cover A4, Letter, and a few common Cameo cutting mats.
+- **Print and cut** -- prints the design plus 3 registration squares to a
+  CUPS printer of your choice, then (once you've placed the printed sheet
+  on the cutting mat) sends the cut with the cutter's optical
+  registration-mark search enabled, so the cut lines up with what was
+  printed even if the sheet isn't perfectly aligned by hand.
+- A status line shows whether a Cameo is currently detected over USB
+  (needs `libusb-1.0-0`, which Ubuntu ships by default).
+
+**USB permissions:** by default only root can open the raw USB device.
+Install the udev rule once so your own user account can:
+
+```bash
+sudo ./install-plotter-udev.sh             # install
+sudo ./install-plotter-udev.sh --uninstall # remove
+```
+
+Then unplug and replug the Cameo (or reboot).
+
+**Honesty about testing:** the SVG import, job building, and the whole
+software pipeline down to the real cutter-protocol driver are covered by
+this repo's automated tests (run in a `dry_run` mode the driver itself
+provides, which still exercises real code, just without touching
+hardware) -- but none of it has been run against a *physical* Cameo 5 in
+building this feature (no device was available). The print-and-cut
+registration-mark search in particular needs the cutter's own optical
+sensor to actually respond; expect to do a first calibration run and check
+the underlying driver's own documentation
+(https://github.com/fablabnbg/inkscape-silhouette) if something doesn't
+line up.
+
 ## Requirements
 
 - Ubuntu/Kubuntu 24.04+ (or any Linux with CUPS -- `cups` + `cups-client`)
 - Python 3.10+
 - PyQt6
+- `pyusb`, `svgelements` and `defusedxml` (only needed for the Plotter tab;
+  printing works fine without them -- if they're missing, the Plotter tab
+  shows a placeholder telling you what to install instead of the app
+  failing to start)
 
 Install the Python dependency:
 
@@ -165,6 +217,32 @@ The CUPS-facing modules (`linuxprint/cups_cli.py`, `linuxprint/discovery.py`,
 what to repair" (pure functions) from "actually run the command"
 (subprocess calls), so the parsing and self-healing decision logic is fully
 unit-tested without needing a real CUPS install -- see `tests/`.
+
+## Credits & third-party licenses
+
+This repository is MIT-licensed (see `LICENSE`), with one exception:
+
+- **`linuxprint/plotter/vendor/inkscape_silhouette/`** (`Graphtec.py`,
+  `Transport.py`) is vendored, near-verbatim, from
+  [fablabnbg/inkscape-silhouette](https://github.com/fablabnbg/inkscape-silhouette)
+  (commit `d8f067b2e649f32eb699bb1fa24385101956f149`) -- the real Graphtec/
+  Silhouette cutter protocol (device tables, command bytes, media/force/
+  speed tables, optical registration-mark search), reused instead of
+  reimplementing years of hardware reverse-engineering from scratch, as
+  its authors intended when they released it. **That directory, and
+  `linuxprint/plotter/vendor/plot_cli.py` which runs it, are licensed
+  under GPL-2.0** (see the `LICENSE` file inside that directory), not MIT --
+  copyright (c) 2013-2017 jw@suse.de, juewei@fabmail.org, Alexander Wenger,
+  Johann Gail, and inkscape-silhouette contributors. Full attribution and
+  an explanation of why this one piece is GPL-2.0 while the rest of the
+  app stays MIT (short version: it only ever runs as its own subprocess,
+  never imported into the main app's process) is in
+  `linuxprint/plotter/vendor/inkscape_silhouette/NOTICE.md`.
+- `assets/61-silhouette-cameo.rules` is adapted (trimmed to the Cameo 4/5
+  family) from the same project's `silhouette-udev.rules`.
+- [`svgelements`](https://github.com/meerk40t/svgelements) (MIT license,
+  by Tatarize) does the SVG parsing and curve flattening for the Plotter
+  tab's "Load SVG" step -- used as a normal MIT dependency, not vendored.
 
 ## Published in Jadiv Code Master
 

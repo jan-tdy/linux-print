@@ -7,10 +7,10 @@
     {
       "id": "jadiv-print-center",
       "name": "Jadiv Print Center",
-      "tagline": "Self-healing USB/network/remote-CUPS printer manager",
-      "description": "A PyQt6 print manager for Ubuntu/Kubuntu 24.04+ covering USB, network and remote CUPS server printers, with autodiscovery and a background watcher that repairs printers whose IP address or port changed -- the usual reason the stock Linux print stack works once and then quietly stops.",
+      "tagline": "Self-healing printer manager + Silhouette Cameo plotter tab",
+      "description": "A PyQt6 print manager for Ubuntu/Kubuntu 24.04+ covering USB, network and remote CUPS server printers, with autodiscovery and a background watcher that repairs printers whose IP address or port changed -- the usual reason the stock Linux print stack works once and then quietly stops. Also includes a Plotter tab for Silhouette Cameo cutting plotters over USB: SVG import, cut/pen, and print-and-cut.",
       "category": "Utilities",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "JapySoft TDY",
       "icon": "assets/jadiv-print-center.svg",
       "subdir": ".",

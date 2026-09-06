@@ -1,1 +1,4 @@
 PyQt6>=6.6
+pyusb>=1.2.1
+svgelements>=1.9.6
+defusedxml>=0.7.1

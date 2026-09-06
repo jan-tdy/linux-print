@@ -1,0 +1,37 @@
+# udev rule granting the active local user USB access to Silhouette/Graphtec
+# cutters, so the Plotter tab can talk to the device without running as
+# root.
+#
+# TAG+="uaccess" (not a world-writable MODE="666") is the modern systemd-udev
+# mechanism: it grants access dynamically to whichever user is logged in at
+# the physical seat, via logind ACLs, instead of making the device node
+# read/writable by every local user and process.
+#
+# Adapted from fablabnbg/inkscape-silhouette's silhouette-udev.rules
+# (https://github.com/fablabnbg/inkscape-silhouette, commit
+# d8f067b2e649f32eb699bb1fa24385101956f149), covering every device in that
+# project's Graphtec.py DEVICE table -- see
+# linuxprint/plotter/vendor/inkscape_silhouette/NOTICE.md for full credits.
+# USB vendor/product IDs are plain device facts, not copyrightable
+# expression, so this rule file is provided under the same MIT license as
+# the rest of this repository.
+
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="110a", TAG+="uaccess"  # Craft Robo CC200-20
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="111a", TAG+="uaccess"  # Craft Robo CC300-20
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="111c", TAG+="uaccess"  # Silhouette SD 1
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="111d", TAG+="uaccess"  # Silhouette SD 2
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1121", TAG+="uaccess"  # Silhouette Cameo (1)
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1123", TAG+="uaccess"  # Silhouette Portrait
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="112b", TAG+="uaccess"  # Silhouette Cameo 2
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="112f", TAG+="uaccess"  # Silhouette Cameo 3
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1132", TAG+="uaccess"  # Silhouette Portrait 2
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="113a", TAG+="uaccess"  # Silhouette Portrait 3
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="113f", TAG+="uaccess"  # Silhouette Portrait 4
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1137", TAG+="uaccess"  # Cameo 4
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1138", TAG+="uaccess"  # Cameo 4 Plus
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1139", TAG+="uaccess"  # Cameo 4 Pro
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1140", TAG+="uaccess"  # Cameo 5
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1141", TAG+="uaccess"  # Cameo 5 Plus
+ATTRS{idVendor}=="0b4d", ATTRS{idProduct}=="1146", TAG+="uaccess"  # Cameo Pro Mk II
+ATTRS{idVendor}=="3844", ATTRS{idProduct}=="0001", TAG+="uaccess"  # Cameo 5 Alpha
+ATTRS{idVendor}=="3844", ATTRS{idProduct}=="0002", TAG+="uaccess"  # Cameo 5 Alpha Plus

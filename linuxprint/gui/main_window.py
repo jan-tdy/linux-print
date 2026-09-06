@@ -91,7 +91,37 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_printers_tab(), "Tlačiarne")
         tabs.addTab(self._build_queue_tab(), "Front úloh")
         tabs.addTab(self._build_settings_tab(), "Denník a nastavenia")
+        tabs.addTab(self._build_plotter_tab(), "Plotter (Cameo)")
         self.setCentralWidget(tabs)
+
+    def _build_plotter_tab(self) -> QWidget:
+        """
+        Build the Plotter tab, or a placeholder explaining what's missing if
+        its optional dependencies (pyusb, svgelements) aren't installed.
+
+        Imported here rather than at module load time: PlotterTab pulls in
+        svgelements (and, transitively, USB device detection), which are
+        only needed for this one tab (see README's Requirements section) --
+        a missing optional dependency must not crash printer management,
+        which the rest of this app doesn't need it for.
+        """
+        try:
+            from .plotter_tab import PlotterTab
+        except ImportError as exc:
+            placeholder = QWidget()
+            layout = QVBoxLayout(placeholder)
+            layout.addWidget(
+                QLabel(
+                    "Tab Plotter je nedostupný -- chýba závislosť "
+                    f"({exc.name or exc}).\n\n"
+                    "Nainštaluj ju príkazom:\n"
+                    "    python3 -m pip install --user pyusb svgelements defusedxml\n"
+                    "a reštartuj aplikáciu."
+                )
+            )
+            layout.addStretch(1)
+            return placeholder
+        return PlotterTab()
 
     def _build_printers_tab(self) -> QWidget:
         """Builds the printer management tab with a printer table and action controls."""
