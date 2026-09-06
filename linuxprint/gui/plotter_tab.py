@@ -99,6 +99,13 @@ class PlotterTab(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         self.scene = QGraphicsScene()
+        # Always a white drawing surface, regardless of the desktop's Qt
+        # palette: on a dark system theme (common on Kubuntu), an
+        # unstyled QGraphicsView paints its background from the dark
+        # palette, so the preview looked like a solid black panel with
+        # nothing on it -- especially since the pen-path color below is a
+        # dark gray that all but disappears against a dark background.
+        self.scene.setBackgroundBrush(QColor("#ffffff"))
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHints(self.view.renderHints())
         splitter.addWidget(self.view)
