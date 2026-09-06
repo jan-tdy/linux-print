@@ -17,7 +17,7 @@
       "entrypoint": "jadiv_print_center.py",
       "run": "python3 jadiv_print_center.py",
       "requirements": "requirements.txt",
-      "update_method": "sync",
+      "update_method": "releases",
       "maintained": true
     }
   ]
