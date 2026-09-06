@@ -68,6 +68,14 @@ _FIELD_TYPES: dict[str, type] = {
     "known_remote_servers": list,
 }
 
+# check_interval_seconds also needs a range check, not just a type check:
+# it feeds QTimer.setInterval(seconds * 1000) (linuxprint/watcher.py), and
+# QTimer's interval is a signed 32-bit millisecond count, so an
+# out-of-range-but-technically-valid int (e.g. from a hand-edited
+# settings.json) would overflow it. This mirrors the GUI's own
+# QSpinBox(5, 3600) range.
+_CHECK_INTERVAL_RANGE = (5, 3600)
+
 
 def load_settings() -> Settings:
     """
@@ -92,12 +100,17 @@ def load_settings() -> Settings:
         expected = _FIELD_TYPES.get(key)
         if expected is None:
             continue
-        # bool is a subclass of int, so check it first: without this an
-        # int field would also accept True/False, and a bool field would
-        # accept 0/1.
-        if expected is bool and isinstance(value, bool):
-            valid[key] = value
-        elif expected is not bool and isinstance(value, expected):
+        # bool is a subclass of int, so it has to be handled explicitly on
+        # both sides: an int field must reject True/False (isinstance(True,
+        # int) is True), and a bool field must reject plain 0/1.
+        is_bool_value = isinstance(value, bool)
+        if expected is bool:
+            if is_bool_value:
+                valid[key] = value
+        elif expected is int:
+            if isinstance(value, int) and not is_bool_value and _CHECK_INTERVAL_RANGE[0] <= value <= _CHECK_INTERVAL_RANGE[1]:
+                valid[key] = value
+        elif isinstance(value, expected):
             valid[key] = value
     return Settings(**valid)
 

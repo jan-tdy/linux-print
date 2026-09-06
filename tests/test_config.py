@@ -44,3 +44,33 @@ def test_load_settings_keeps_valid_values(tmp_path, monkeypatch):
     settings = config.load_settings()
     assert settings.check_interval_seconds == 90
     assert settings.notifications_enabled is False
+
+
+def test_load_settings_rejects_bool_for_int_field(tmp_path, monkeypatch):
+    """isinstance(True, int) is True in Python, so a naive isinstance check
+    would let a JSON `true` through as check_interval_seconds=1."""
+    _isolate(tmp_path, monkeypatch)
+    config.SETTINGS_FILE.write_text(json.dumps({"check_interval_seconds": True}), encoding="utf-8")
+    settings = config.load_settings()
+    assert settings.check_interval_seconds == 30
+
+
+def test_load_settings_rejects_out_of_range_interval(tmp_path, monkeypatch):
+    """An oversized interval would overflow QTimer's signed 32-bit
+    millisecond count once multiplied by 1000 in Watcher.start()."""
+    _isolate(tmp_path, monkeypatch)
+    config.SETTINGS_FILE.write_text(json.dumps({"check_interval_seconds": 2147484}), encoding="utf-8")
+    settings = config.load_settings()
+    assert settings.check_interval_seconds == 30
+
+    config.SETTINGS_FILE.write_text(json.dumps({"check_interval_seconds": 0}), encoding="utf-8")
+    assert config.load_settings().check_interval_seconds == 30
+
+
+def test_load_settings_keeps_boundary_interval_values(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    config.SETTINGS_FILE.write_text(json.dumps({"check_interval_seconds": 5}), encoding="utf-8")
+    assert config.load_settings().check_interval_seconds == 5
+
+    config.SETTINGS_FILE.write_text(json.dumps({"check_interval_seconds": 3600}), encoding="utf-8")
+    assert config.load_settings().check_interval_seconds == 3600

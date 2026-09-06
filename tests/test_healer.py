@@ -131,3 +131,32 @@ def test_plan_repairs_skips_ambiguous_duplicate_discovered_devices():
         "Office_Printer": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0)
     }
     assert plan_repairs(installed, discovered, identities) == []
+
+
+def test_plan_repairs_ignores_stale_identity_when_checking_ambiguity():
+    """A printer removed outside this tool (e.g. via a bare `lpadmin -x`)
+    leaves behind an identity record with no matching installed printer.
+    That stale record must not make a live printer sharing its key look
+    ambiguous and block its repair."""
+    installed = {"Live_Printer": Printer(name="Live_Printer", uri="ipp://192.168.1.50:631/ipp/print")}
+    discovered = [
+        DiscoveredPrinter(
+            uri="ipp://192.168.1.99:631/ipp/print",
+            scheme="ipp",
+            category="network-ip",
+            label="x",
+            identity_key="ip:ipp:/ipp/print",
+            host="192.168.1.99",
+            port=631,
+        )
+    ]
+    identities = {
+        "Live_Printer": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0),
+        "Removed_Elsewhere": IdentityRecord(
+            "ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.51:631/ipp/print", 0.0
+        ),
+    }
+    repairs = plan_repairs(installed, discovered, identities)
+    assert len(repairs) == 1
+    assert repairs[0].printer_name == "Live_Printer"
+    assert repairs[0].new_uri == "ipp://192.168.1.99:631/ipp/print"

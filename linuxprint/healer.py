@@ -60,8 +60,12 @@ def plan_repairs(
     for device in discovered:
         discovered_by_key.setdefault(device.identity_key, []).append(device)
 
+    # A stale record for a printer removed outside this tool must not count
+    # toward ambiguity for a live printer that happens to share its key.
     installed_names_by_key: dict[str, list[str]] = {}
     for name, record in identities.items():
+        if name not in installed:
+            continue
         installed_names_by_key.setdefault(record.identity_key, []).append(name)
 
     repairs: list[Repair] = []
