@@ -30,7 +30,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from defusedxml.ElementTree import parse as safe_parse
-from svgelements import SVG
+from svgelements import SVG, Matrix, Point
 
 from .job import RegmarkSettings
 
@@ -73,35 +73,38 @@ def render_regmarks_svg(settings: RegmarkSettings, page_width_mm: float, page_he
     )
 
 
-def _mm_to_user_units_transform(svg_path: str) -> tuple[float, float, float, float]:
-    """Return (origin_x, origin_y, scale_x, scale_y) to convert a millimetre
-    point (measured from the page's top-left corner) into the *user units*
-    the document's own root <svg> element draws its direct children in.
+def _inverse_viewbox_transform(svg_path: str) -> Matrix:
+    """Return the transform that maps a point in the document's physical
+    CSS-pixel space (its width/height attributes, at 96 user units per
+    inch, with no viewBox involved) into the *user units* its root <svg>
+    element draws direct children in.
 
     A unit-suffixed length like "15mm" on a child element is an absolute
-    CSS length (always 96 user units per inch) -- it is NOT scaled by an
-    ancestor's viewBox the way a plain unitless number is. So when the root
-    element has a viewBox (e.g. width="300mm" height="300mm"
-    viewBox="0 0 300 300", where 1 user unit is meant to equal 1mm),
-    writing x="15mm" ends up ~3.78x too far (96/25.4 user units per
-    intended user unit) instead of landing at the intended 15mm. Converting
-    to plain numbers in the root's actual user-unit space avoids that.
+    CSS length -- it is NOT scaled by an ancestor's viewBox the way a plain
+    unitless number is. So when the root element has a viewBox (e.g.
+    width="300mm" height="300mm" viewBox="0 0 300 300", where 1 user unit
+    is meant to equal 1mm), writing x="15mm" ends up ~3.78x too far (96/25.4
+    user units per intended user unit) instead of landing at the intended
+    15mm. Converting to plain numbers in the root's actual user-unit space
+    avoids that.
+
+    svgelements' own `viewbox_transform` already implements the SVG spec's
+    viewBox-to-viewport mapping -- including preserveAspectRatio's default
+    uniform "meet" scale and xMidYMid centering offset for a document whose
+    viewBox aspect ratio doesn't match its physical width/height -- so its
+    inverse is used here rather than hand-rolling (and getting wrong) that
+    same math. With no viewBox at all, svgelements reports an identity
+    transform, which correctly leaves CSS pixels as-is.
     """
     svg = SVG.parse(svg_path)
-    viewbox = svg.viewbox
-    if viewbox is not None and svg.width and svg.height:
-        physical_width_mm = float(svg.width) / _USER_UNITS_PER_MM
-        physical_height_mm = float(svg.height) / _USER_UNITS_PER_MM
-        if physical_width_mm > 0 and physical_height_mm > 0:
-            return (
-                viewbox.x,
-                viewbox.y,
-                viewbox.width / physical_width_mm,
-                viewbox.height / physical_height_mm,
-            )
-    # No viewBox (or no resolvable physical size): the root's user-unit
-    # space is plain CSS pixels, unscaled by any viewBox.
-    return (0.0, 0.0, _USER_UNITS_PER_MM, _USER_UNITS_PER_MM)
+    matrix = Matrix(svg.viewbox_transform)
+    matrix.inverse()
+    return matrix
+
+
+def _mm_to_user_units(inverse_transform: Matrix, x_mm: float, y_mm: float) -> tuple[float, float]:
+    point = Point(x_mm * _USER_UNITS_PER_MM, y_mm * _USER_UNITS_PER_MM) * inverse_transform
+    return (point.x, point.y)
 
 
 def merge_svg_with_regmarks(svg_path: str, settings: RegmarkSettings) -> str:
@@ -114,13 +117,19 @@ def merge_svg_with_regmarks(svg_path: str, settings: RegmarkSettings) -> str:
     tree = safe_parse(svg_path)
     root = tree.getroot()
 
-    origin_x, origin_y, scale_x, scale_y = _mm_to_user_units_transform(svg_path)
+    inverse_transform = _inverse_viewbox_transform(svg_path)
     for x_mm, y_mm in regmark_points_mm(settings):
+        x0, y0 = _mm_to_user_units(inverse_transform, x_mm, y_mm)
+        # Transform a corner-to-corner vector rather than scaling MARK_SIZE_MM
+        # directly: preserveAspectRatio can scale x/y unevenly (or offset the
+        # origin), so only the *difference* between two transformed points
+        # gives the mark's correct width/height in user units.
+        x1, y1 = _mm_to_user_units(inverse_transform, x_mm + MARK_SIZE_MM, y_mm + MARK_SIZE_MM)
         rect = ET.SubElement(root, f"{{{_SVG_NS}}}rect")
-        rect.set("x", f"{origin_x + x_mm * scale_x:.4f}")
-        rect.set("y", f"{origin_y + y_mm * scale_y:.4f}")
-        rect.set("width", f"{MARK_SIZE_MM * scale_x:.4f}")
-        rect.set("height", f"{MARK_SIZE_MM * scale_y:.4f}")
+        rect.set("x", f"{x0:.4f}")
+        rect.set("y", f"{y0:.4f}")
+        rect.set("width", f"{abs(x1 - x0):.4f}")
+        rect.set("height", f"{abs(y1 - y0):.4f}")
         rect.set("fill", "#000000")
 
     fd, out_path = tempfile.mkstemp(suffix=".svg", prefix="jadiv-print-center-regmarks-")

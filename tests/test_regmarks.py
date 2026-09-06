@@ -78,6 +78,36 @@ def test_merge_svg_with_regmarks_scales_for_mismatched_viewbox(tmp_path):
     assert float(first.get("width")) == pytest.approx(MARK_SIZE_MM * 10)
 
 
+def test_merge_svg_with_regmarks_applies_preserve_aspect_ratio_centering(tmp_path):
+    # A 200mm x 100mm (2:1) page with a square 100x100 viewBox: the default
+    # preserveAspectRatio="xMidYMid meet" uniformly scales the viewBox to
+    # fit the *shorter* dimension (height) and centers it horizontally,
+    # adding an X offset this transform must account for -- not just a
+    # per-axis scale factor. The physical center of the page (100mm, 50mm)
+    # must land at the viewBox's own center (50, 50).
+    svg_path = tmp_path / "letterboxed.svg"
+    svg_path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="100mm" '
+        'viewBox="0 0 100 100"><path d="M10,10 L50,10" stroke="#ff0000" fill="none"/></svg>',
+        encoding="utf-8",
+    )
+
+    settings = RegmarkSettings(enabled=True, origin_x_mm=100.0, origin_y_mm=50.0, width_mm=1.0, length_mm=1.0)
+    merged_path = merge_svg_with_regmarks(str(svg_path), settings)
+
+    tree = ET.parse(merged_path)
+    rects = tree.getroot().findall("{http://www.w3.org/2000/svg}rect")
+    first = rects[0]
+    assert float(first.get("x")) == pytest.approx(50.0, abs=1e-3)
+    assert float(first.get("y")) == pytest.approx(50.0, abs=1e-3)
+    # The page's 100mm height maps 1:1 onto the viewBox's 100 user units (the
+    # "meet" scale is uniform across both axes), so the mark's physical 5mm
+    # size is unchanged here -- this test is about the centering offset, not
+    # a scale factor; test_merge_svg_with_regmarks_scales_for_mismatched_viewbox
+    # covers a real scale change.
+    assert float(first.get("width")) == pytest.approx(MARK_SIZE_MM, abs=1e-3)
+
+
 def test_merge_svg_with_regmarks_rejects_xxe(tmp_path):
     svg_path = tmp_path / "malicious.svg"
     svg_path.write_text(
