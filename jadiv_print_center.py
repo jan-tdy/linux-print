@@ -28,7 +28,7 @@ from linuxprint import config
 from linuxprint.cups_cli import is_available
 from linuxprint.gui.main_window import MainWindow
 from linuxprint.gui.tray import TrayIcon
-from linuxprint.ipc import SingleInstanceServer, notify_existing_instance
+from linuxprint.ipc import AcquisitionResult, SingleInstanceServer
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -75,18 +75,16 @@ def main(argv: list[str] | None = None) -> int:
     # processes launched close together could both fail to find a peer and
     # both go on to become "the" instance, each with its own CUPS watcher.
     ipc_server = SingleInstanceServer()
-    if not ipc_server.listen():
-        if notify_existing_instance():
-            return 0
-        # listen() failed but nobody answered either -- the socket path was
-        # left behind by a previous crash. Safe to reclaim it now.
-        if not ipc_server.remove_stale_and_retry():
-            QMessageBox.critical(
-                None,
-                "Nepodarilo sa spustiť",
-                "Jadiv Print Center sa nepodarilo spustiť (zlyhalo IPC spojenie).",
-            )
-            return 1
+    acquisition = ipc_server.acquire()
+    if acquisition is AcquisitionResult.SECONDARY:
+        return 0
+    if acquisition is AcquisitionResult.ERROR:
+        QMessageBox.critical(
+            None,
+            "Nepodarilo sa spustiť",
+            "Jadiv Print Center sa nepodarilo spustiť (zlyhalo IPC spojenie).",
+        )
+        return 1
 
     if not is_available("lpstat") or not is_available("lpadmin"):
         QMessageBox.critical(

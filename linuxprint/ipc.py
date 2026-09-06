@@ -14,19 +14,29 @@ watcher thread.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from enum import Enum, auto
+
+from PyQt6.QtCore import QLockFile, QObject, pyqtSignal
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
-from .config import IPC_SOCKET_NAME
+from .config import IPC_LOCK_FILE, IPC_SOCKET_NAME
 
 SHOW_COMMAND = b"show"
+
+
+class AcquisitionResult(Enum):
+    PRIMARY = auto()
+    SECONDARY = auto()
+    ERROR = auto()
 
 
 class SingleInstanceServer(QObject):
     show_requested = pyqtSignal()
 
-    def __init__(self) -> None:
+    def __init__(self, socket_name: str = IPC_SOCKET_NAME, lock_file_path: str | None = None) -> None:
         super().__init__()
+        self._socket_name = socket_name
+        self._lock = QLockFile(lock_file_path or str(IPC_LOCK_FILE))
         self._server: QLocalServer | None = None
         self._create_server()
 
@@ -39,13 +49,35 @@ class SingleInstanceServer(QObject):
         process already owns the name (or a stale socket file is in the
         way -- call notify_existing_instance() first to tell the two
         cases apart, then remove_stale_and_retry() only if that fails)."""
-        return self._server.listen(IPC_SOCKET_NAME)
+        return self._server.listen(self._socket_name)
+
+    def acquire(self) -> AcquisitionResult:
+        """Atomically establish or notify the single application instance.
+
+        The lock remains owned by a primary instance for this object's
+        lifetime, so no other process can race stale-socket cleanup against
+        its live endpoint.
+        """
+        if not self._lock.tryLock(0):
+            notify_existing_instance(self._socket_name)
+            return AcquisitionResult.SECONDARY
+
+        if self.listen():
+            return AcquisitionResult.PRIMARY
+        if notify_existing_instance(self._socket_name):
+            self._lock.unlock()
+            return AcquisitionResult.SECONDARY
+        if self.remove_stale_and_retry():
+            return AcquisitionResult.PRIMARY
+
+        self._lock.unlock()
+        return AcquisitionResult.ERROR
 
     def remove_stale_and_retry(self) -> bool:
         """Only call this after notify_existing_instance() has confirmed no
         live process answers on this name -- i.e. the socket path was left
         behind by a previous crash, not a running instance."""
-        QLocalServer.removeServer(IPC_SOCKET_NAME)
+        QLocalServer.removeServer(self._socket_name)
         self._create_server()
         return self.listen()
 
@@ -68,7 +100,7 @@ class SingleInstanceServer(QObject):
         socket.disconnectFromServer()
 
 
-def notify_existing_instance() -> bool:
+def notify_existing_instance(socket_name: str = IPC_SOCKET_NAME) -> bool:
     """
     Notify a running instance to raise its window.
     
@@ -76,7 +108,7 @@ def notify_existing_instance() -> bool:
     	bool: `True` if the existing instance accepts the connection, `False` otherwise.
     """
     socket = QLocalSocket()
-    socket.connectToServer(IPC_SOCKET_NAME)
+    socket.connectToServer(socket_name)
     if not socket.waitForConnected(500):
         return False
     socket.write(SHOW_COMMAND)

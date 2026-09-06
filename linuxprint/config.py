@@ -35,6 +35,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 IDENTITY_FILE = DATA_DIR / "printers.json"
 HEALER_LOG_FILE = LOG_DIR / "healer.log"
 IPC_SOCKET_NAME = f"{APP_ID}-ipc"
+IPC_LOCK_FILE = CONFIG_DIR / f"{APP_ID}.lock"
 
 
 @dataclass
