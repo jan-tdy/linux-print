@@ -1,0 +1,13 @@
+[Unit]
+Description=Jadiv Print Center -- background printer autodiscovery & self-healing
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 "__INSTALL_DIR__/jadiv_print_center.py" --daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
