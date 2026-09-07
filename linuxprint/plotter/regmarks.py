@@ -189,10 +189,10 @@ def merge_raster_with_regmarks(image_path: str, settings: RegmarkSettings, dpi: 
         required_height_mm = max(y for _, y in points_mm) + MARK_SIZE_MM
         if img.width < required_width_mm * px_per_mm or img.height < required_height_mm * px_per_mm:
             raise ValueError(
-                f"Obrázok ({img.width}x{img.height} px pri {dpi:.0f} DPI, t.j. "
-                f"{img.width / px_per_mm:.0f}x{img.height / px_per_mm:.0f} mm) je príliš malý pre "
-                f"registračné značky (potrebuje aspoň {required_width_mm:.0f}x{required_height_mm:.0f} mm) "
-                "-- zväčši médium alebo vypni registračné značky."
+                f"Image ({img.width}x{img.height} px at {dpi:.0f} DPI, i.e. "
+                f"{img.width / px_per_mm:.0f}x{img.height / px_per_mm:.0f} mm) is too small for the "
+                f"registration marks (needs at least {required_width_mm:.0f}x{required_height_mm:.0f} mm) "
+                "-- enlarge the media or turn off registration marks."
             )
 
         draw = ImageDraw.Draw(img)

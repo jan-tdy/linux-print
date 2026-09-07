@@ -50,8 +50,8 @@ def _which(binary: str) -> str:
     path = shutil.which(binary)
     if not path:
         raise CupsToolMissing(
-            f"'{binary}' nebol nájdený. Nainštaluj balík 'cups-client' "
-            f"(napr. `sudo apt install cups-client`)."
+            f"'{binary}' was not found. Install the 'cups-client' package "
+            f"(e.g. `sudo apt install cups-client`)."
         )
     return path
 

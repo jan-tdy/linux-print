@@ -47,7 +47,7 @@ def detect_cameo() -> DeviceStatus:
     try:
         import usb.core
     except ImportError:
-        return DeviceStatus(connected=False, error="pyusb nie je nainštalované")
+        return DeviceStatus(connected=False, error="pyusb is not installed")
 
     try:
         for vendor_id in KNOWN_VENDOR_IDS:
@@ -56,12 +56,12 @@ def detect_cameo() -> DeviceStatus:
                 continue
             name = KNOWN_DEVICES.get((vendor_id, device.idProduct))
             if name is None:
-                name = f"Neznáme zariadenie Graphtec/Silhouette (0x{device.idProduct:04x})"
+                name = f"Unknown Graphtec/Silhouette device (0x{device.idProduct:04x})"
             return DeviceStatus(connected=True, name=name)
     except usb.core.NoBackendError:
         return DeviceStatus(
             connected=False,
-            error="Chýba knižnica libusb (nainštaluj 'libusb-1.0-0').",
+            error="Missing libusb library (install 'libusb-1.0-0').",
         )
     except Exception as exc:  # defensive: never let a status check crash the GUI
         return DeviceStatus(connected=False, error=str(exc))

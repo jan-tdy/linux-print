@@ -15,11 +15,11 @@ STATE_COLORS = {
 }
 
 STATE_LABELS = {
-    "idle": "Pripravená",
-    "printing": "Tlačí",
-    "stopped": "Zastavená",
-    "unreachable": "Nedostupná",
-    "unknown": "Neznámy stav",
+    "idle": "Ready",
+    "printing": "Printing",
+    "stopped": "Stopped",
+    "unreachable": "Unreachable",
+    "unknown": "Unknown status",
 }
 
 
@@ -41,8 +41,8 @@ def status_item(state: str) -> QTableWidgetItem:
 
 CATEGORY_LABELS = {
     "usb": "USB",
-    "network-mdns": "Sieťová (autodiscovery)",
-    "network-ip": "Sieťová (pevná IP)",
-    "remote-cups": "Vzdialený CUPS server",
-    "other": "Iné",
+    "network-mdns": "Network (autodiscovery)",
+    "network-ip": "Network (fixed IP)",
+    "remote-cups": "Remote CUPS server",
+    "other": "Other",
 }

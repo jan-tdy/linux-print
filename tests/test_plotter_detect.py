@@ -40,4 +40,4 @@ def test_detect_cameo_unrecognised_product_id():
     with mock.patch("usb.core.find", side_effect=fake_find):
         status = detect.detect_cameo()
     assert status.connected is True
-    assert "Neznáme" in status.name
+    assert "Unknown" in status.name

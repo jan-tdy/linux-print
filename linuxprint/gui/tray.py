@@ -75,11 +75,11 @@ class TrayIcon(QSystemTrayIcon):
         self.setToolTip("Jadiv Print Center")
 
         menu = QMenu()
-        open_action = QAction("Otvoriť správcu tlačiarní", self)
+        open_action = QAction("Open printer manager", self)
         open_action.triggered.connect(self.show_main_window)
         menu.addAction(open_action)
         menu.addSeparator()
-        quit_action = QAction("Ukončiť", self)
+        quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
         self.setContextMenu(menu)

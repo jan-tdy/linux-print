@@ -5,7 +5,8 @@ CUPS-based distro) that handles USB, network and remote-CUPS-server
 printers with autodiscovery -- and, unlike the stock Linux print stack,
 keeps working after a printer's IP address or port changes. It also has a
 **Plotter tab** for Silhouette Cameo cutting plotters (USB, Cameo 4/5
-family) -- SVG/PNG/PDF import, a manual line-drawing tool, cut/pen, and
+family) -- SVG/PNG/PDF import, a manual drawing tool (freehand, a shape
+catalog, and text), roll-fed vinyl support, project save/load, cut/pen, and
 print-and-cut.
 
 Made by JapySoft TDY.
@@ -33,12 +34,11 @@ drifts.
   remove, enable/disable, set default.
 - **Add printer wizard** -- three tabs:
   - **USB** -- printers `lpinfo` sees plugged in.
-  - **Sieť (autodiscovery)** -- printers found via mDNS/DNS-SD (`dnssd://`)
+  - **Network (autodiscovery)** -- printers found via mDNS/DNS-SD (`dnssd://`)
     and other network devices CUPS can already see.
-  - **Vzdialený CUPS server** -- point it at a remote CUPS server
+  - **Remote CUPS server** -- point it at a remote CUPS server
     (`host[:port]`) and browse the printers it shares.
-- **Front úloh (job queue)** -- cancel, hold, resume, or move print jobs
-  between printers.
+- **Job queue** -- cancel, hold, resume, or move print jobs between printers.
 - **Background self-healing** -- a watcher thread (also installable as a
   `systemd --user` service, so it runs even with no window open) keeps
   re-discovering printers and repairs device URIs that changed. See below
@@ -73,11 +73,11 @@ one applies to a given printer:
    lpadmin -p <name> -v <new-uri>
    ```
 
-   and logs exactly what it changed (visible in the "Denník a nastavenia"
+   and logs exactly what it changed (visible in the "Log & settings"
    tab and in `~/.local/share/jadiv-print-center/logs/healer.log`). If it
    can't confidently match a drifted printer to a new address, it leaves
-   the queue alone and just marks it "Nedostupná" (unreachable) in the UI
-   rather than guessing and repointing it at the wrong device.
+   the queue alone and just marks it "Unreachable" in the UI rather than
+   guessing and repointing it at the wrong device.
 
 Either way, opening the app (or letting the background service run) is
 what makes this different from the vanilla CUPS experience: you get
@@ -105,29 +105,55 @@ own quick "is anything plugged in" status check doesn't name them).
   reference layer under the canvas -- draw the actual cut/pen lines by
   hand on top of it (see below) tracing the parts you want cut.
 - **Manual drawing tool** -- draw cut or pen polylines directly on the
-  canvas without needing an SVG at all: pick "Kresliť rez" or "Kresliť
-  pero", click to place points, finish with a double-click or Enter,
-  cancel with Escape. "Späť" undoes the last shape, "Vymazať kresbu"
-  clears everything hand-drawn. Hand-drawn shapes combine with anything
-  imported from an SVG -- draw extra cut lines around an imported design,
-  or start a job from nothing but freehand lines.
-- **Cut** / **Draw with pen** -- send the cut or pen paths to the cutter.
-  Force (blade pressure / pen pressure) and speed are adjustable; media
-  presets cover A4, Letter, and a few common Cameo cutting mats. Both (and
-  print-and-cut's cutting step) show a confirmation summarizing exactly
-  what's about to be sent -- media, path counts, speed/pressure -- before
-  anything physically happens, since a wrong setting wastes material or a
-  blade pass.
-- **Registration-mark preview** -- ticking "Použiť registračné značky"
+  canvas without needing an SVG at all: pick "Draw cut" or "Draw pen",
+  click to place points, finish with a double-click or Enter, cancel with
+  Escape. "Undo" undoes the last shape, "Clear drawing" clears everything
+  hand-drawn. Hand-drawn shapes combine with anything imported from an SVG
+  -- draw extra cut lines around an imported design, or start a job from
+  nothing but freehand lines.
+- **Shape catalog** -- pick Square, Circle, Rectangle or Triangle from the
+  "Shape" dropdown and drag on the canvas to draw it at any size (square
+  and circle keep a 1:1 ratio); switch back to "Freehand" for the
+  click-by-click polyline tool above.
+- **Text tool** -- type a string, set its height in mm, click "Add text
+  (click on canvas)", then click where it should go. The text is converted
+  to its actual glyph outlines (via Qt's own font rendering, flattened to
+  polylines) before being added, so it becomes a normal cut/pen path like
+  anything else here -- no font is needed on the cutter side, and inner
+  contours (the hole in an "O") come through correctly.
+- **Roll-fed vinyl** -- pick the `roll_vinyl` media preset to cut on a
+  mat-less roll instead of a fixed sheet: set the roll's width, and the cut
+  length is automatically fit to the actual design (plus a small margin)
+  instead of guessing a fixed sheet height.
+- **Save/open project** -- "Save project…" writes either a `.jpcp` (Jadiv
+  Print Center Project) file -- a self-contained JSON snapshot of the
+  cut/draw paths, tool settings, and an embedded copy of any loaded
+  background image, so a session can be closed and reopened exactly as
+  left -- or a plain `.svg` (cut paths in red, pen paths in black) if you'd
+  rather hand the file to another tool. "Open project…" loads a `.jpcp`
+  back.
+- **Cut** / **Draw with pen** / **Cut + draw** -- send the cut paths, the
+  pen paths, or both together in one job to the cutter. Force (blade
+  pressure / pen pressure) and speed are adjustable; media presets cover
+  A4, Letter, a few common Cameo cutting mats, and roll-fed vinyl (above).
+  Every one of these (plus the registration-mark search checkbox, which
+  now applies uniformly to all three, not just print-and-cut) shows a
+  confirmation summarizing exactly what's about to be sent -- media, path
+  counts, speed/pressure -- before anything physically happens, since a
+  wrong setting wastes material or a blade pass.
+- **Registration-mark preview** -- ticking "Use registration marks"
   overlays where the marks will actually print (in blue) directly on the
   canvas, so misalignment with the design is obvious before committing
-  paper to it, not after.
-- **Print and cut** -- prints the design (an SVG's vector content, or an
-  imported PNG/PDF's raster content) plus registration squares to a CUPS
-  printer of your choice, then (once you've placed the printed sheet on
-  the cutting mat) sends the cut with the cutter's optical
-  registration-mark search enabled, so the cut lines up with what was
-  printed even if the sheet isn't perfectly aligned by hand.
+  paper to it, not after. The mark layout automatically scales down to fit
+  whatever is actually being printed (a small custom PNG, a roll-vinyl cut,
+  a full sheet) instead of assuming a fixed page size that a smaller image
+  can't hold.
+- **Print** and **cutting are separate steps** -- "Print…" only sends the
+  design (with registration marks composited on, if enabled) to a regular
+  CUPS printer; "Cut" / "Draw with pen" / "Cut + draw" independently send
+  the cutter job. Print once and cut multiple times, or re-cut a sheet
+  without reprinting it, instead of always chaining print immediately into
+  a single cut.
 - A status line shows whether a Cameo is currently detected over USB
   (needs `libusb-1.0-0`, which Ubuntu ships by default).
 
@@ -181,13 +207,14 @@ registration-mark search in particular needs the cutter's own optical
 sensor to actually respond; expect to do a first calibration run and check
 the underlying driver's own documentation
 (https://github.com/fablabnbg/inkscape-silhouette) if something doesn't
-line up. The manual line-drawing tool, PNG/PDF import, and registration-mark
-preview overlay are covered by automated tests down to the data they
-produce (paths, composited pixels), but the interactive canvas behavior
-itself (mouse clicks, live rubber-banding) has only been exercised through
-direct calls to its internal handlers, not a real mouse -- if a click or
-double-click doesn't register the way you expect on your desktop, that's
-the part most likely to need a follow-up fix.
+line up. The manual line-drawing tool, shape catalog, text tool, PNG/PDF
+import, project save/load, and registration-mark preview overlay are
+covered by automated tests down to the data they produce (paths, composited
+pixels, saved/reloaded project files), but the interactive canvas behavior
+itself (mouse clicks and drags, live rubber-banding) has only been
+exercised through direct calls to its internal handlers, not a real mouse
+-- if a click, drag, or double-click doesn't register the way you expect on
+your desktop, that's the part most likely to need a follow-up fix.
 
 ## Requirements
 
