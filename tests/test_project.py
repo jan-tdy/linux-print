@@ -50,3 +50,37 @@ def test_load_project_rejects_a_file_that_is_not_a_project(tmp_path):
     path.write_text('{"format": "something-else"}', encoding="utf-8")
     with pytest.raises(ValueError, match="Not a Jadiv Print Center project"):
         load_project(str(path))
+
+
+def test_load_project_rejects_a_zero_background_dpi(tmp_path):
+    # A background dpi of 0 would otherwise reach PlotterTab's preview
+    # scaling (PREVIEW_PX_PER_MM / (background_dpi / 25.4)) and raise
+    # ZeroDivisionError -- reject it at load time instead, like
+    # plotter_tab._read_png_dpi already does for a plain PNG import.
+    import json
+
+    path = tmp_path / "zero_dpi.jpcp"
+    path.write_text(
+        json.dumps(
+            {
+                "format": "jadiv-print-center-project",
+                "version": 1,
+                "background": {"dpi": 0.0, "data_base64": "AAAA"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Invalid background DPI"):
+        load_project(str(path))
+
+
+def test_load_project_rejects_a_background_missing_required_fields(tmp_path):
+    import json
+
+    path = tmp_path / "incomplete_background.jpcp"
+    path.write_text(
+        json.dumps({"format": "jadiv-print-center-project", "version": 1, "background": {"dpi": 96.0}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Invalid background image"):
+        load_project(str(path))

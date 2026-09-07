@@ -123,17 +123,33 @@ def export_svg(parsed: ParsedSvg, file_path: str, cut_color: str = "#ff0000", dr
     child <path> coordinates are plain numbers, not CSS lengths, since a
     unit suffix on a child element ignores the root's viewBox scaling.
     """
+    # parse_svg reads a <path>'s "d" numbers directly as mm (divided by
+    # PX_PER_MM), with no viewBox-origin compensation of its own -- unlike
+    # regmarks.py's mark placement, which does apply a full inverse
+    # viewBox transform when merging into an *externally supplied* SVG.
+    # So a nonzero viewBox origin here would silently shift every point on
+    # re-import; instead, keep viewBox at "0 0 W H" and translate the path
+    # data itself so panning the drawing canvas to negative scene
+    # coordinates (see plotter_tab.py's _DrawingView) doesn't get clipped.
     all_points = [pt for path in (*parsed.cut_paths, *parsed.draw_paths) for pt in path]
+    offset_x, offset_y = 0.0, 0.0
     if parsed.width_mm > 0 and parsed.height_mm > 0:
         width_mm, height_mm = parsed.width_mm, parsed.height_mm
     elif all_points:
-        width_mm = max(x for x, _ in all_points) + 10.0
-        height_mm = max(y for _, y in all_points) + 10.0
+        min_x = min(x for x, _ in all_points)
+        min_y = min(y for _, y in all_points)
+        # Only shift when a coordinate actually goes negative -- otherwise
+        # the common case (everything already >=0) keeps its old, simpler
+        # "just add a margin past the far edge" output unchanged.
+        offset_x = min_x - 10.0 if min_x < 0 else 0.0
+        offset_y = min_y - 10.0 if min_y < 0 else 0.0
+        width_mm = max(x for x, _ in all_points) + 10.0 - offset_x
+        height_mm = max(y for _, y in all_points) + 10.0 - offset_y
     else:
         width_mm, height_mm = 210.0, 297.0
 
     def _path_element(path: list[tuple[float, float]], color: str) -> str:
-        d = "M " + " L ".join(f"{x:.3f},{y:.3f}" for x, y in path)
+        d = "M " + " L ".join(f"{x - offset_x:.3f},{y - offset_y:.3f}" for x, y in path)
         return f'<path d="{d}" stroke="{color}" fill="none" stroke-width="0.3"/>'
 
     lines = [

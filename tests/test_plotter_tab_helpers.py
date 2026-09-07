@@ -17,6 +17,7 @@ from linuxprint.gui.plotter_tab import (
     _read_png_dpi,
     _regmark_settings_for_canvas,
     _render_pdf_first_page,
+    _roll_cut_length_mm,
     _shape_outline_points,
 )
 from linuxprint.plotter.regmarks import MARK_SIZE_MM, merge_raster_with_regmarks
@@ -154,6 +155,15 @@ def test_regmark_settings_for_canvas_never_shrinks_below_one_mark():
     settings = _regmark_settings_for_canvas(10.0, 10.0, quad=True)
     assert settings.width_mm >= MARK_SIZE_MM
     assert settings.length_mm >= MARK_SIZE_MM
+
+
+def test_roll_cut_length_mm_fits_the_deepest_point_plus_margin():
+    points = [(0.0, 0.0), (50.0, 120.0), (10.0, 30.0)]
+    assert _roll_cut_length_mm(points) == pytest.approx(140.0)  # 120 + 20mm margin
+
+
+def test_roll_cut_length_mm_has_a_minimum_even_for_a_tiny_design():
+    assert _roll_cut_length_mm([(0.0, 0.0)]) == pytest.approx(50.0)
 
 
 def test_small_png_that_used_to_be_rejected_now_merges_successfully(tmp_path):

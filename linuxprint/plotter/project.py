@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from dataclasses import dataclass, field
 
 PROJECT_FORMAT = "jadiv-print-center-project"
@@ -68,11 +69,19 @@ def load_project(file_path: str) -> Project:
         raise ValueError(f"Not a Jadiv Print Center project file: {file_path}")
 
     background_data = data.get("background")
-    background = (
-        ProjectBackgroundImage(dpi=float(background_data["dpi"]), data_base64=background_data["data_base64"])
-        if background_data
-        else None
-    )
+    background = None
+    if background_data:
+        try:
+            dpi = float(background_data["dpi"])
+            data_base64 = background_data["data_base64"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid background image in project file: {file_path}") from exc
+        # A zero/negative/NaN dpi would later divide PlotterTab's preview
+        # scaling by zero -- _read_png_dpi guards the same value for PNG
+        # imports; a project's embedded background needs the same guard.
+        if not math.isfinite(dpi) or dpi <= 0:
+            raise ValueError(f"Invalid background DPI ({dpi!r}) in project file: {file_path}")
+        background = ProjectBackgroundImage(dpi=dpi, data_base64=data_base64)
     return Project(
         cut_paths=[[tuple(point) for point in path] for path in data.get("cut_paths", [])],
         draw_paths=[[tuple(point) for point in path] for path in data.get("draw_paths", [])],

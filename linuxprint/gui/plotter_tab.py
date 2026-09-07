@@ -143,6 +143,14 @@ def _render_pdf_first_page(pdf_path: str, dpi: float = 200.0) -> str:
         doc.close()
 
 
+def _roll_cut_length_mm(points: list[tuple[float, float]]) -> float:
+    """Cut length for roll-fed vinyl: there's no fixed sheet height to look
+    up, so it's computed from how far down the given points (the design
+    actually being processed) reach, plus a margin."""
+    max_y = max((y for _, y in points), default=0.0)
+    return max(max_y + _ROLL_LENGTH_MARGIN_MM, 50.0)
+
+
 def _regmark_settings_for_canvas(width_mm: float, height_mm: float, quad: bool) -> RegmarkSettings:
     """Scale the registration-mark layout to fit the given canvas size,
     instead of a fixed page-sized default that a smaller custom image (or a
@@ -595,7 +603,19 @@ class PlotterTab(QWidget):
         the background raster's size at its own DPI, the imported SVG's own
         declared size, or (with neither) the current media preset's sheet
         size -- used to scale the registration-mark layout to fit, instead
-        of a fixed A4-sized default that a small custom image can't hold."""
+        of a fixed A4-sized default that a small custom image can't hold.
+
+        roll_vinyl is checked first and unconditionally: it has no fixed
+        sheet size of its own (MEDIA_PRESETS only holds a nominal
+        placeholder for it), so the real size is always the configured roll
+        width and the design's own height, never a background/SVG size."""
+        if self.media_combo.currentText() == "roll_vinyl":
+            all_points = (
+                [point for path in (*self.parsed.cut_paths, *self.parsed.draw_paths) for point in path]
+                if self.parsed is not None
+                else []
+            )
+            return self.roll_width_spin.value(), _roll_cut_length_mm(all_points)
         if self.background_image_path is not None:
             pixmap = QPixmap(self.background_image_path)
             if not pixmap.isNull() and self.background_dpi > 0:
@@ -1011,12 +1031,19 @@ class PlotterTab(QWidget):
         if media_preset == "roll_vinyl":
             # Matless/roll-fed vinyl has no fixed sheet size: use the
             # configured roll width, and let the cut length follow the
-            # actual design instead of a guessed fixed sheet height.
+            # actual design instead of a guessed fixed sheet height. Uses
+            # only this job's own passes (e.g. a cut-only job ignores pen
+            # paths that extend further down) -- _current_canvas_size_mm
+            # uses the whole design instead, since that's what's shown in
+            # the shared preview regardless of which job is about to run.
             media_width_mm = self.roll_width_spin.value()
             all_points = [point for p in passes for path in p.paths for point in path]
-            max_y = max((y for _, y in all_points), default=0.0)
-            media_height_mm = max(max_y + _ROLL_LENGTH_MARGIN_MM, 50.0)
+            media_height_mm = _roll_cut_length_mm(all_points)
 
+        # _regmark_settings() itself already resolves roll_vinyl's marks
+        # against the roll width and the whole design's height (see
+        # _current_canvas_size_mm), so the marks on the physical cut agree
+        # with what the registration-mark preview showed beforehand.
         regmark_settings = self._regmark_settings() if regmark else RegmarkSettings(enabled=False)
         return PlotJob(
             passes=passes,
@@ -1173,6 +1200,16 @@ class PlotterTab(QWidget):
             return
 
         result = cups_cli.submit_print_job(printer, merged_path, title="Jadiv Print Center - print", ppi=ppi)
+        # submit_print_job runs `lp` to completion (it's a synchronous
+        # subprocess call), and CUPS copies/spools the file as part of that
+        # same call -- so once it returns, a merged_path that isn't the
+        # user's own original artwork is a temp file this function created
+        # and is done with, regardless of whether the submission succeeded.
+        if merged_path not in (self.background_image_path, self.svg_path):
+            try:
+                os.remove(merged_path)
+            except OSError:
+                pass
         if not result.ok:
             QMessageBox.critical(self, "Print failed", result.stderr or "Unknown lp error.")
             return

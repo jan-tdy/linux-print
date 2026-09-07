@@ -74,3 +74,24 @@ def test_export_svg_falls_back_to_bounding_box_without_declared_size(tmp_path):
     reparsed = parse_svg(out_path)
     assert reparsed.width_mm == pytest.approx(40.0, abs=0.01)  # 30 + 10mm margin
     assert reparsed.height_mm == pytest.approx(50.0, abs=0.01)  # 40 + 10mm margin
+
+
+def test_export_svg_handles_negative_coordinates_without_clipping(tmp_path):
+    # A panned drawing canvas can produce negative scene coordinates (see
+    # plotter_tab.py's _DrawingView) -- a "0 0 ..." viewBox would silently
+    # clip anything left of/above the origin instead of exporting it.
+    parsed = ParsedSvg(cut_paths=[[(-20.0, -30.0), (10.0, 5.0)]])
+    out_path = str(tmp_path / "negative.svg")
+    export_svg(parsed, out_path)
+
+    reparsed = parse_svg(out_path)
+    assert len(reparsed.cut_paths) == 1
+    xs = [x for x, _ in reparsed.cut_paths[0]]
+    ys = [y for _, y in reparsed.cut_paths[0]]
+    # The negative-coordinate point must round-trip (shifted by a constant
+    # offset so everything lands >=0 with a 10mm margin), not get clipped
+    # to 0 -- the *shape* of the path (its extent) must be preserved.
+    assert max(xs) - min(xs) == pytest.approx(30.0, abs=0.01)  # 10 - (-20)
+    assert max(ys) - min(ys) == pytest.approx(35.0, abs=0.01)  # 5 - (-30)
+    assert min(xs) == pytest.approx(10.0, abs=0.01)  # shifted to sit at the margin
+    assert min(ys) == pytest.approx(10.0, abs=0.01)
