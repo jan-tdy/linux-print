@@ -76,6 +76,15 @@ do_install() {
         echo "    (add --break-system-packages if pip refuses with" >&2
         echo "     'externally-managed-environment')" >&2
     fi
+    if ! python3 -c "import PIL, pypdfium2" >/dev/null 2>&1; then
+        echo "Warning: Pillow and/or pypdfium2 are not installed (needed only for the" >&2
+        echo "Plotter tab's PNG/PDF import -- SVG-based cut/draw still works without" >&2
+        echo "them). Install with:" >&2
+        printf '    python3 -m pip install --user -r %q\n' \
+            "$REPO_DIR/requirements.txt" >&2
+        echo "    (add --break-system-packages if pip refuses with" >&2
+        echo "     'externally-managed-environment')" >&2
+    fi
     if ! command -v lpadmin >/dev/null 2>&1; then
         echo "Warning: 'lpadmin' not found. Install CUPS with:" >&2
         echo "    sudo apt install cups cups-client" >&2

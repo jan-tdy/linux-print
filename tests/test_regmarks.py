@@ -4,7 +4,12 @@ import pytest
 from defusedxml.common import DefusedXmlException
 
 from linuxprint.plotter.job import RegmarkSettings
-from linuxprint.plotter.regmarks import MARK_SIZE_MM, merge_svg_with_regmarks, regmark_points_mm
+from linuxprint.plotter.regmarks import (
+    MARK_SIZE_MM,
+    merge_raster_with_regmarks,
+    merge_svg_with_regmarks,
+    regmark_points_mm,
+)
 
 SAMPLE_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="300mm" height="300mm" viewBox="0 0 300 300">
   <path d="M10,10 L50,10" stroke="#ff0000" fill="none"/>
@@ -106,6 +111,45 @@ def test_merge_svg_with_regmarks_applies_preserve_aspect_ratio_centering(tmp_pat
     # a scale factor; test_merge_svg_with_regmarks_scales_for_mismatched_viewbox
     # covers a real scale change.
     assert float(first.get("width")) == pytest.approx(MARK_SIZE_MM, abs=1e-3)
+
+
+def test_merge_raster_with_regmarks_draws_black_squares(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    png_path = tmp_path / "artwork.png"
+    Image.new("RGB", (400, 400), "white").save(png_path)
+
+    settings = RegmarkSettings(enabled=True, origin_x_mm=10.0, origin_y_mm=10.0, width_mm=50.0, length_mm=50.0)
+    out_path = merge_raster_with_regmarks(str(png_path), settings, dpi=96.0)
+
+    result = Image.open(out_path)
+    assert result.size == (400, 400)
+    px_per_mm = 96.0 / 25.4
+    # A point safely inside the first mark's square (not right on its edge).
+    mark_x = int(10 * px_per_mm + MARK_SIZE_MM * px_per_mm / 2)
+    mark_y = int(10 * px_per_mm + MARK_SIZE_MM * px_per_mm / 2)
+    assert result.getpixel((mark_x, mark_y)) == (0, 0, 0)
+    # Untouched background stays white.
+    assert result.getpixel((5, 5)) == (255, 255, 255)
+    # The DPI the marks were placed at must be preserved in the output, or
+    # a later print (via cups_cli.submit_print_job's ppi=...) or a re-read
+    # of this file would use a different, wrong scale.
+    assert result.info.get("dpi") == pytest.approx((96.0, 96.0), abs=0.05)
+
+
+def test_merge_raster_with_regmarks_rejects_image_too_small_for_marks(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    png_path = tmp_path / "tiny.png"
+    Image.new("RGB", (50, 50), "white").save(png_path)
+
+    # Default RegmarkSettings place marks out to (195mm, 250mm) -- far
+    # larger than what a 50x50px/96dpi (~13x13mm) image can hold.
+    settings = RegmarkSettings(enabled=True)
+    with pytest.raises(ValueError, match="príliš malý"):
+        merge_raster_with_regmarks(str(png_path), settings, dpi=96.0)
 
 
 def test_merge_svg_with_regmarks_rejects_xxe(tmp_path):

@@ -4,23 +4,60 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 
+# Sizes covering the tray/panel icon requests typical desktop environments
+# make (GNOME/KDE/XFCE panels ask 16-48px; HiDPI panels ask for more).
+_ICON_SIZES = (16, 22, 24, 32, 48, 64, 128)
+
 
 def _load_icon() -> QIcon:
-    """
-    Load the application icon from the bundled SVG asset, falling back to the system printer icon when the asset is unavailable.
-    
-    Returns:
-    	QIcon: The loaded application icon.
-    """
+    """Load the application icon from the bundled SVG asset, falling back to
+    the system printer icon when the asset is unavailable or can't be
+    rendered."""
     svg = ASSETS_DIR / "jadiv-print-center.svg"
     if svg.exists():
-        return QIcon(str(svg))
+        icon = _render_svg_icon(svg)
+        if icon is not None:
+            return icon
     return QIcon.fromTheme("printer")
+
+
+def _render_svg_icon(svg_path: Path) -> QIcon | None:
+    """Rasterize the SVG into a QIcon ourselves via QSvgRenderer, instead of
+    the simpler `QIcon(str(svg_path))`.
+
+    That simpler form depends on Qt's separate SVG *icon engine* plugin
+    being installed -- on Debian/Ubuntu this is a distinct apt package
+    (python3-pyqt6.qtsvg) from the main python3-pyqt6 one the README's apt
+    fallback mentions -- and when it's missing, QIcon doesn't raise or
+    return a null icon; it silently produces an icon that looks fine
+    in-widget but renders as blank in an actual system tray (a known
+    StatusNotifierItem/XEmbed quirk with vector icon engines on several
+    desktop shells). Rendering to fixed-size QPixmaps ourselves only needs
+    the QtSvg module (part of the main PyQt6 wheel/apt package) to be
+    importable, not that separate icon-engine plugin.
+    """
+    try:
+        from PyQt6.QtSvg import QSvgRenderer
+    except ImportError:
+        return None
+    renderer = QSvgRenderer(str(svg_path))
+    if not renderer.isValid():
+        return None
+    icon = QIcon()
+    for size in _ICON_SIZES:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        icon.addPixmap(pixmap)
+    return icon
 
 
 class TrayIcon(QSystemTrayIcon):

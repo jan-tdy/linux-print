@@ -8,6 +8,7 @@ from linuxprint.cups_cli import (
     parse_lpstat_v,
     requires_legacy_transport_opt_in,
     set_device_uri,
+    submit_print_job,
 )
 
 
@@ -127,3 +128,21 @@ def test_set_device_uri_blocks_legacy_transport_without_opt_in(monkeypatch):
 
     assert not result.ok
     assert calls == []
+
+
+def test_submit_print_job_without_ppi_omits_the_option(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    submit_print_job("Office", "/tmp/design.svg", title="Job")
+
+    assert calls == [["lp", "-d", "Office", "-t", "Job", "/tmp/design.svg"]]
+
+
+def test_submit_print_job_with_ppi_tells_cups_the_raster_resolution(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    submit_print_job("Office", "/tmp/artwork.png", title="Job", ppi=200)
+
+    assert calls == [["lp", "-d", "Office", "-t", "Job", "-o", "ppi=200", "/tmp/artwork.png"]]
