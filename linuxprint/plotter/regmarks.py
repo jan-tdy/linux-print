@@ -171,14 +171,32 @@ def merge_raster_with_regmarks(image_path: str, settings: RegmarkSettings, dpi: 
     import feature, not needed for the SVG-only workflow) -- imported here,
     not at module load, so importing this module doesn't require Pillow
     just to merge marks into an SVG.
+
+    Raises ValueError if the image is too small to fit every mark at its
+    configured position: Pillow's ImageDraw silently clips a rectangle that
+    falls (partly) outside the image instead of raising, which would
+    otherwise mean a mark quietly missing from the printed sheet -- and the
+    cutter's optical search failing to find it -- with no indication why.
     """
     from PIL import Image, ImageDraw
 
     px_per_mm = dpi / 25.4
     with Image.open(image_path) as img:
         img = img.convert("RGB")
+
+        points_mm = regmark_points_mm(settings)
+        required_width_mm = max(x for x, _ in points_mm) + MARK_SIZE_MM
+        required_height_mm = max(y for _, y in points_mm) + MARK_SIZE_MM
+        if img.width < required_width_mm * px_per_mm or img.height < required_height_mm * px_per_mm:
+            raise ValueError(
+                f"Obrázok ({img.width}x{img.height} px pri {dpi:.0f} DPI, t.j. "
+                f"{img.width / px_per_mm:.0f}x{img.height / px_per_mm:.0f} mm) je príliš malý pre "
+                f"registračné značky (potrebuje aspoň {required_width_mm:.0f}x{required_height_mm:.0f} mm) "
+                "-- zväčši médium alebo vypni registračné značky."
+            )
+
         draw = ImageDraw.Draw(img)
-        for x_mm, y_mm in regmark_points_mm(settings):
+        for x_mm, y_mm in points_mm:
             x0 = x_mm * px_per_mm
             y0 = y_mm * px_per_mm
             x1 = x0 + MARK_SIZE_MM * px_per_mm
@@ -187,5 +205,10 @@ def merge_raster_with_regmarks(image_path: str, settings: RegmarkSettings, dpi: 
 
         fd, out_path = tempfile.mkstemp(suffix=".png", prefix="jadiv-print-center-regmarks-")
         os.close(fd)
-        img.save(out_path, format="PNG")
+        # Preserve the DPI this function's own mark placement assumed --
+        # without it, CUPS would fall back to any DPI already embedded in
+        # the source image (which may be a different value) or its own
+        # default, printing marks at the wrong physical position/size even
+        # though the pixels here are correct for the intended DPI.
+        img.save(out_path, format="PNG", dpi=(dpi, dpi))
     return out_path

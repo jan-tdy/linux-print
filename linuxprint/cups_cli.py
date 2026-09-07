@@ -525,7 +525,7 @@ def list_jobs(printer: str | None = None) -> list[Job]:
     return parse_lpstat_o(run(args).stdout)
 
 
-def submit_print_job(printer: str, file_path: str, *, title: str | None = None) -> ToolResult:
+def submit_print_job(printer: str, file_path: str, *, title: str | None = None, ppi: int | None = None) -> ToolResult:
     """Submit a file to a printer's queue (used by the Plotter tab's
     "print" step of print-and-cut, and available for anything else that
     needs to print an already-rendered file rather than manage a printer).
@@ -534,6 +534,14 @@ def submit_print_job(printer: str, file_path: str, *, title: str | None = None) 
         printer (str): Destination printer name.
         file_path (str): Path to the file to print.
         title (str | None): Optional job title shown in the queue.
+        ppi (int | None): For a raster (PNG) file with no other resolution
+            hint CUPS trusts, tell it explicitly how many pixels per inch
+            the image was produced at (`-o ppi=...`), so it prints at the
+            physical size the caller's own mm math assumed -- otherwise
+            CUPS falls back to any DPI embedded in the file or a fixed
+            default, which need not match, throwing off anything (like
+            print-and-cut's registration marks) that depends on the
+            printed page matching an exact physical scale.
 
     Returns:
         ToolResult: The result of the `lp` command.
@@ -541,6 +549,8 @@ def submit_print_job(printer: str, file_path: str, *, title: str | None = None) 
     args = ["lp", "-d", printer]
     if title:
         args += ["-t", title]
+    if ppi is not None:
+        args += ["-o", f"ppi={ppi}"]
     args.append(file_path)
     return run(args)
 

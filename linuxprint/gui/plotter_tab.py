@@ -7,6 +7,7 @@ NOTICE.md for why (GPL-2.0 vendored driver, MIT app).
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 
@@ -67,7 +68,14 @@ def _read_png_dpi(path: str) -> float:
         with Image.open(path) as img:
             dpi = img.info.get("dpi")
             if dpi:
-                return float(dpi[0])
+                value = float(dpi[0])
+                # A malformed/degenerate pHYs chunk (e.g. 0 pixels-per-unit)
+                # would otherwise become a background_dpi of 0, and
+                # _render_preview's PREVIEW_PX_PER_MM / (dpi / 25.4) divides
+                # by it -- a ZeroDivisionError crash on preview render, not
+                # just a wrong-looking image.
+                if math.isfinite(value) and value > 0:
+                    return value
     except Exception:
         pass
     return _DEFAULT_RASTER_DPI
@@ -96,7 +104,12 @@ def _render_pdf_first_page(pdf_path: str, dpi: float = 200.0) -> str:
         image = bitmap.to_pil()
         fd, out_path = tempfile.mkstemp(suffix=".png", prefix="jadiv-print-center-pdf-")
         os.close(fd)
-        image.save(out_path, format="PNG")
+        # Preserve dpi so a later print (via cups_cli.submit_print_job's
+        # ppi=...) and the regmark math both agree on this image's
+        # physical size -- otherwise CUPS would fall back to its own
+        # default DPI, printing at a different physical scale than the
+        # rendering above assumed.
+        image.save(out_path, format="PNG", dpi=(dpi, dpi))
         return out_path
     finally:
         doc.close()
@@ -722,11 +735,18 @@ class PlotterTab(QWidget):
             return
 
         regmark_settings = RegmarkSettings(enabled=True, quad=self.quad_check.isChecked())
+        ppi: int | None = None
         try:
             if self.background_image_path is not None:
                 merged_path = regmarks.merge_raster_with_regmarks(
                     self.background_image_path, regmark_settings, dpi=self.background_dpi
                 )
+                # Tell CUPS explicitly what DPI this raster was produced
+                # at -- otherwise it falls back to any (possibly
+                # different) DPI embedded in the file or its own default,
+                # printing at the wrong physical scale even though the
+                # marks were composited correctly for background_dpi.
+                ppi = round(self.background_dpi)
             else:
                 merged_path = regmarks.merge_svg_with_regmarks(self.svg_path, regmark_settings)
         except ImportError as exc:
@@ -737,8 +757,11 @@ class PlotterTab(QWidget):
                 "Nainštaluj: python3 -m pip install --user Pillow",
             )
             return
+        except ValueError as exc:
+            QMessageBox.critical(self, "Obrázok je príliš malý", str(exc))
+            return
 
-        result = cups_cli.submit_print_job(printer, merged_path, title="Jadiv Print Center - tlač a rez")
+        result = cups_cli.submit_print_job(printer, merged_path, title="Jadiv Print Center - tlač a rez", ppi=ppi)
         if not result.ok:
             QMessageBox.critical(self, "Tlač zlyhala", result.stderr or "Neznáma chyba lp.")
             return

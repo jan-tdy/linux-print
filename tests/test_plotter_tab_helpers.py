@@ -50,6 +50,29 @@ def test_read_png_dpi_defaults_to_96_without_pillow(tmp_path, monkeypatch):
     assert _read_png_dpi(str(tmp_path / "whatever.png")) == 96.0
 
 
+def test_read_png_dpi_rejects_a_zero_pixels_per_unit_phys_chunk(tmp_path, monkeypatch):
+    # A malformed pHYs chunk (unit=meters, 0 pixels-per-unit on both axes)
+    # would make Pillow report dpi=(0.0, 0.0) -- accepting that verbatim
+    # would later divide by zero in _render_preview's DPI-based scaling.
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    def fake_open(path):
+        class _FakeImage:
+            info = {"dpi": (0.0, 0.0)}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        return _FakeImage()
+
+    monkeypatch.setattr(Image, "open", fake_open)
+    assert _read_png_dpi(str(tmp_path / "degenerate.png")) == 96.0
+
+
 def test_render_pdf_first_page_produces_a_png(tmp_path):
     pytest.importorskip("pypdfium2")
     pytest.importorskip("PIL")
@@ -64,5 +87,7 @@ def test_render_pdf_first_page_produces_a_png(tmp_path):
         assert result.format == "PNG"
         # 300x150 points at 150dpi (PDF's native unit is 72 points/inch).
         assert result.size == (625, 313)
+        # Preserved so a later print/regmark step agrees on physical scale.
+        assert result.info.get("dpi") == pytest.approx((150.0, 150.0), abs=0.05)
     finally:
         os.unlink(out_path)
