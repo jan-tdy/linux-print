@@ -50,7 +50,7 @@ def _usb_label_and_key(uri: str) -> tuple[str, str]:
     make_model = unquote(parts.netloc + parts.path).strip("/").replace("/", " ")
     query = parse_qs(parts.query)
     serial = (query.get("serial") or [""])[0]
-    label = make_model or "USB zariadenie"
+    label = make_model or "USB device"
     key = f"usb:{make_model.lower()}:{serial}" if serial else f"usb:{make_model.lower()}"
     return label, key
 
@@ -70,7 +70,7 @@ def _dnssd_label_and_key(uri: str) -> tuple[str, str]:
     instance = unquote(parts.netloc)
     query = parse_qs(parts.query)
     uuid = (query.get("uuid") or [""])[0]
-    label = instance.split("._", 1)[0] or "Sieťová tlačiareň (mDNS)"
+    label = instance.split("._", 1)[0] or "Network printer (mDNS)"
     key = f"dnssd:{uuid}" if uuid else f"dnssd:{instance.lower()}"
     return label, key
 

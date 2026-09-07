@@ -48,6 +48,11 @@ def test_plot_job_explicit_size_overrides_preset():
     assert height == 456.0
 
 
+def test_roll_vinyl_preset_uses_matless_cutting():
+    cuttingmat, _width, _height = MEDIA_PRESETS["roll_vinyl"]
+    assert cuttingmat == "no_mat"
+
+
 def test_plot_job_to_json_includes_passes_and_media():
     job = PlotJob(
         passes=[ToolPass(tool="pen", paths=[[(0, 0), (1, 1)]])],

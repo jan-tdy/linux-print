@@ -148,7 +148,7 @@ def test_merge_raster_with_regmarks_rejects_image_too_small_for_marks(tmp_path):
     # Default RegmarkSettings place marks out to (195mm, 250mm) -- far
     # larger than what a 50x50px/96dpi (~13x13mm) image can hold.
     settings = RegmarkSettings(enabled=True)
-    with pytest.raises(ValueError, match="príliš malý"):
+    with pytest.raises(ValueError, match="too small"):
         merge_raster_with_regmarks(str(png_path), settings, dpi=96.0)
 
 

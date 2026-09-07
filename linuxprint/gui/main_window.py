@@ -88,9 +88,9 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         """Builds the main window's tabbed user interface."""
         tabs = QTabWidget()
-        tabs.addTab(self._build_printers_tab(), "Tlačiarne")
-        tabs.addTab(self._build_queue_tab(), "Front úloh")
-        tabs.addTab(self._build_settings_tab(), "Denník a nastavenia")
+        tabs.addTab(self._build_printers_tab(), "Printers")
+        tabs.addTab(self._build_queue_tab(), "Job queue")
+        tabs.addTab(self._build_settings_tab(), "Log & settings")
         tabs.addTab(self._build_plotter_tab(), "Plotter (Cameo)")
         self.setCentralWidget(tabs)
 
@@ -112,11 +112,11 @@ class MainWindow(QMainWindow):
             layout = QVBoxLayout(placeholder)
             layout.addWidget(
                 QLabel(
-                    "Tab Plotter je nedostupný -- chýba závislosť "
+                    "The Plotter tab is unavailable -- missing dependency "
                     f"({exc.name or exc}).\n\n"
-                    "Nainštaluj ju príkazom:\n"
+                    "Install it with:\n"
                     "    python3 -m pip install --user pyusb svgelements defusedxml\n"
-                    "a reštartuj aplikáciu."
+                    "and restart the application."
                 )
             )
             layout.addStretch(1)
@@ -129,24 +129,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         self.printers_table = QTableWidget(0, 5)
-        self.printers_table.setHorizontalHeaderLabels(["Názov", "Stav", "Typ", "Adresa (URI)", "Predvolená"])
+        self.printers_table.setHorizontalHeaderLabels(["Name", "Status", "Type", "Address (URI)", "Default"])
         self.printers_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.printers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.printers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.printers_table)
 
         buttons = QHBoxLayout()
-        add_btn = QPushButton("Pridať tlačiareň…")
+        add_btn = QPushButton("Add printer…")
         add_btn.clicked.connect(self._on_add_printer)
-        remove_btn = QPushButton("Odstrániť")
+        remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(self._on_remove_printer)
-        default_btn = QPushButton("Nastaviť ako predvolenú")
+        default_btn = QPushButton("Set as default")
         default_btn.clicked.connect(self._on_set_default)
-        enable_btn = QPushButton("Povoliť")
+        enable_btn = QPushButton("Enable")
         enable_btn.clicked.connect(lambda: self._on_set_enabled(True))
-        disable_btn = QPushButton("Zastaviť")
+        disable_btn = QPushButton("Stop")
         disable_btn.clicked.connect(lambda: self._on_set_enabled(False))
-        refresh_btn = QPushButton("Obnoviť")
+        refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self._refresh_printers_now)
         for btn in (add_btn, remove_btn, default_btn, enable_btn, disable_btn, refresh_btn):
             buttons.addWidget(btn)
@@ -164,23 +164,23 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         self.jobs_table = QTableWidget(0, 4)
-        self.jobs_table.setHorizontalHeaderLabels(["ID úlohy", "Tlačiareň", "Používateľ", "Detail"])
+        self.jobs_table.setHorizontalHeaderLabels(["Job ID", "Printer", "User", "Detail"])
         self.jobs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.jobs_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.jobs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.jobs_table)
 
         buttons = QHBoxLayout()
-        cancel_btn = QPushButton("Zrušiť úlohu")
+        cancel_btn = QPushButton("Cancel job")
         cancel_btn.clicked.connect(self._on_cancel_job)
-        hold_btn = QPushButton("Pozastaviť")
+        hold_btn = QPushButton("Hold")
         hold_btn.clicked.connect(self._on_hold_job)
-        release_btn = QPushButton("Pokračovať")
+        release_btn = QPushButton("Release")
         release_btn.clicked.connect(self._on_release_job)
         self.move_combo = QComboBox()
-        move_btn = QPushButton("Presunúť na")
+        move_btn = QPushButton("Move to")
         move_btn.clicked.connect(self._on_move_job)
-        refresh_btn = QPushButton("Obnoviť")
+        refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self._refresh_jobs_now)
         for w in (cancel_btn, hold_btn, release_btn, self.move_combo, move_btn, refresh_btn):
             buttons.addWidget(w)
@@ -203,34 +203,34 @@ class MainWindow(QMainWindow):
         self.interval_spin.setRange(5, 3600)
         self.interval_spin.setSuffix(" s")
         self.interval_spin.setValue(self.settings.check_interval_seconds)
-        form.addRow("Interval kontroly:", self.interval_spin)
+        form.addRow("Check interval:", self.interval_spin)
 
-        self.autoheal_check = QCheckBox("Automaticky opravovať tlačiarne po zmene IP/portu")
+        self.autoheal_check = QCheckBox("Automatically repair printers after an IP/port change")
         self.autoheal_check.setChecked(self.settings.autoheal_enabled)
         form.addRow(self.autoheal_check)
 
-        self.notify_check = QCheckBox("Zobrazovať upozornenia v systémovej lište")
+        self.notify_check = QCheckBox("Show notifications in the system tray")
         self.notify_check.setChecked(self.settings.notifications_enabled)
         form.addRow(self.notify_check)
 
-        save_btn = QPushButton("Uložiť nastavenia")
+        save_btn = QPushButton("Save settings")
         save_btn.clicked.connect(self._on_save_settings)
         form.addRow(save_btn)
         layout.addLayout(form)
 
-        layout.addWidget(QLabel("Služba na pozadí (systemd --user):"))
+        layout.addWidget(QLabel("Background service (systemd --user):"))
         self.service_status_label = QLabel("...")
         layout.addWidget(self.service_status_label)
         service_buttons = QHBoxLayout()
-        start_btn = QPushButton("Spustiť")
+        start_btn = QPushButton("Start")
         start_btn.clicked.connect(self._on_service_start)
-        stop_btn = QPushButton("Zastaviť")
+        stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self._on_service_stop)
-        enable_btn = QPushButton("Povoliť pri štarte")
+        enable_btn = QPushButton("Enable at startup")
         enable_btn.clicked.connect(self._on_service_enable)
-        disable_btn = QPushButton("Zakázať pri štarte")
+        disable_btn = QPushButton("Disable at startup")
         disable_btn.clicked.connect(self._on_service_disable)
-        refresh_btn = QPushButton("Obnoviť stav")
+        refresh_btn = QPushButton("Refresh status")
         refresh_btn.clicked.connect(self._refresh_service_status)
         for btn in (start_btn, stop_btn, enable_btn, disable_btn, refresh_btn):
             service_buttons.addWidget(btn)
@@ -238,7 +238,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(service_buttons)
         self._refresh_service_status()
 
-        layout.addWidget(QLabel("Denník opráv:"))
+        layout.addWidget(QLabel("Repair log:"))
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         layout.addWidget(self.log_view)
@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
         Parameters:
         	message (str): The error message to record.
         """
-        self._append_log(f"CHYBA: {message}")
+        self._append_log(f"ERROR: {message}")
 
     def _append_log(self, message: str) -> None:
         """
@@ -309,7 +309,7 @@ class MainWindow(QMainWindow):
             table.setItem(row, 1, status_item(state))
             table.setItem(row, 2, QTableWidgetItem(CATEGORY_LABELS.get(category, category)))
             table.setItem(row, 3, QTableWidgetItem(printer.uri))
-            table.setItem(row, 4, QTableWidgetItem("Áno" if printer.is_default else ""))
+            table.setItem(row, 4, QTableWidgetItem("Yes" if printer.is_default else ""))
 
     def _selected_printer_name(self) -> str | None:
         """
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
         try:
             self._installed = cups_cli.list_printers()
         except CupsToolMissing as exc:
-            QMessageBox.warning(self, "CUPS nástroje chýbajú", str(exc))
+            QMessageBox.warning(self, "CUPS tools missing", str(exc))
             return
         self._render_printers_table()
         self._refresh_move_combo()
@@ -352,8 +352,8 @@ class MainWindow(QMainWindow):
         if cups_cli.requires_legacy_transport_opt_in(device.uri):
             choice = QMessageBox.warning(
                 self,
-                "Nešifrované pripojenie tlačiarne",
-                cups_cli.LEGACY_TRANSPORT_WARNING + "\n\nChceš napriek tomu pokračovať?",
+                "Unencrypted printer connection",
+                cups_cli.LEGACY_TRANSPORT_WARNING + "\n\nContinue anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -370,10 +370,10 @@ class MainWindow(QMainWindow):
             allow_legacy_transport=allow_legacy_transport,
         )
         if not result.ok:
-            QMessageBox.critical(self, "Pridanie zlyhalo", result.stderr or "Neznáma chyba lpadmin.")
+            QMessageBox.critical(self, "Adding failed", result.stderr or "Unknown lpadmin error.")
             return
         identity.remember(name, device, legacy_transport_allowed=allow_legacy_transport)
-        self._append_log(f"Pridaná tlačiareň '{name}' ({device.uri}).")
+        self._append_log(f"Added printer '{name}' ({device.uri}).")
         self._refresh_printers_now()
 
     def _on_remove_printer(self) -> None:
@@ -383,11 +383,11 @@ class MainWindow(QMainWindow):
         name = self._selected_printer_name()
         if not name:
             return
-        if QMessageBox.question(self, "Odstrániť", f"Naozaj odstrániť tlačiareň '{name}'?") != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Remove", f"Really remove printer '{name}'?") != QMessageBox.StandardButton.Yes:
             return
         result = cups_cli.remove_printer(name)
         if not result.ok:
-            QMessageBox.critical(self, "Odstránenie zlyhalo", result.stderr or "Neznáma chyba lpadmin.")
+            QMessageBox.critical(self, "Removal failed", result.stderr or "Unknown lpadmin error.")
             return
         identity.forget(name)
         self._refresh_printers_now()
@@ -495,16 +495,16 @@ class MainWindow(QMainWindow):
         if self.watcher is not None:
             self.watcher.settings = self.settings
             self.watcher.update_interval(self.settings.check_interval_seconds)
-        QMessageBox.information(self, "Uložené", "Nastavenia boli uložené.")
+        QMessageBox.information(self, "Saved", "Settings have been saved.")
 
     def _refresh_service_status(self) -> None:
         """Update the displayed status of the systemd user service."""
         if not servicectl.is_installed():
-            self.service_status_label.setText("Služba nie je nainštalovaná (spusti install-service.sh).")
+            self.service_status_label.setText("Service is not installed (run install-service.sh).")
             return
-        active = "beží" if servicectl.is_active() else "nebeží"
-        enabled = "spúšťa sa automaticky" if servicectl.is_enabled() else "nespúšťa sa automaticky"
-        self.service_status_label.setText(f"Stav: {active}, {enabled}.")
+        active = "running" if servicectl.is_active() else "not running"
+        enabled = "starts automatically" if servicectl.is_enabled() else "does not start automatically"
+        self.service_status_label.setText(f"Status: {active}, {enabled}.")
 
     def _on_service_start(self) -> None:
         """Start the systemd user service and refresh its displayed status."""

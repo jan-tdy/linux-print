@@ -111,3 +111,42 @@ def parse_svg(file_path: str, curve_tolerance_mm: float = 0.2) -> ParsedSvg:
         else:
             result.draw_paths.extend(polylines)
     return result
+
+
+def export_svg(parsed: ParsedSvg, file_path: str, cut_color: str = "#ff0000", draw_color: str = "#000000") -> None:
+    """Write cut/draw polylines back out as a standalone SVG file, using the
+    same "red stroke == cut" convention parse_svg reads -- so a file written
+    here round-trips through parse_svg.
+
+    1 user unit == 1mm (viewBox spans the same numeric range as the mm
+    width/height), matching regmarks.merge_svg_with_regmarks's convention;
+    child <path> coordinates are plain numbers, not CSS lengths, since a
+    unit suffix on a child element ignores the root's viewBox scaling.
+    """
+    all_points = [pt for path in (*parsed.cut_paths, *parsed.draw_paths) for pt in path]
+    if parsed.width_mm > 0 and parsed.height_mm > 0:
+        width_mm, height_mm = parsed.width_mm, parsed.height_mm
+    elif all_points:
+        width_mm = max(x for x, _ in all_points) + 10.0
+        height_mm = max(y for _, y in all_points) + 10.0
+    else:
+        width_mm, height_mm = 210.0, 297.0
+
+    def _path_element(path: list[tuple[float, float]], color: str) -> str:
+        d = "M " + " L ".join(f"{x:.3f},{y:.3f}" for x, y in path)
+        return f'<path d="{d}" stroke="{color}" fill="none" stroke-width="0.3"/>'
+
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width_mm:.3f}mm" '
+        f'height="{height_mm:.3f}mm" viewBox="0 0 {width_mm:.3f} {height_mm:.3f}">'
+    ]
+    for path in parsed.cut_paths:
+        if len(path) >= 2:
+            lines.append(_path_element(path, cut_color))
+    for path in parsed.draw_paths:
+        if len(path) >= 2:
+            lines.append(_path_element(path, draw_color))
+    lines.append("</svg>")
+
+    with open(file_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))

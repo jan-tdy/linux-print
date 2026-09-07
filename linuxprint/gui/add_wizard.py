@@ -38,7 +38,7 @@ class _DiscoveryTab(QWidget):
         self.categories = categories
         self.list_widget = QListWidget()
         self.list_widget.itemSelectionChanged.connect(self._on_selection_changed)
-        refresh_btn = QPushButton("Obnoviť")
+        refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh)
 
         layout = QVBoxLayout(self)
@@ -57,11 +57,11 @@ class _DiscoveryTab(QWidget):
         try:
             devices = discovery.discover_all()
         except cups_cli.CupsToolMissing as exc:
-            QMessageBox.warning(self, "CUPS nástroje chýbajú", str(exc))
+            QMessageBox.warning(self, "CUPS tools missing", str(exc))
             return
         matching = [d for d in devices if d.category in self.categories]
         if not matching:
-            self.list_widget.addItem("Nič sa nenašlo (skús Obnoviť znova)")
+            self.list_widget.addItem("Nothing found (try Refresh again)")
             self.list_widget.setEnabled(False)
             return
         self.list_widget.setEnabled(True)
@@ -94,8 +94,8 @@ class _RemoteCupsTab(QWidget):
         """
         super().__init__(parent)
         self.server_edit = QLineEdit()
-        self.server_edit.setPlaceholderText("napr. tlaciaren-server.local:631")
-        browse_btn = QPushButton("Prehľadať server")
+        self.server_edit.setPlaceholderText("e.g. printer-server.local:631")
+        browse_btn = QPushButton("Browse server")
         browse_btn.clicked.connect(self.browse)
         self.list_widget = QListWidget()
         self.list_widget.itemSelectionChanged.connect(self._on_selection_changed)
@@ -105,7 +105,7 @@ class _RemoteCupsTab(QWidget):
         row.addWidget(browse_btn)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Zadaj adresu vzdialeného CUPS servera a prehľadaj jeho zdieľané tlačiarne:"))
+        layout.addWidget(QLabel("Enter the remote CUPS server's address and browse its shared printers:"))
         layout.addLayout(row)
         layout.addWidget(self.list_widget)
         self.on_selection_changed = None
@@ -116,16 +116,16 @@ class _RemoteCupsTab(QWidget):
         """
         server = self.server_edit.text().strip()
         if not server:
-            QMessageBox.information(self, "Chýba adresa", "Zadaj adresu alebo hostname servera.")
+            QMessageBox.information(self, "Missing address", "Enter the server's address or hostname.")
             return
         self.list_widget.clear()
         try:
             devices = discovery.list_remote_server_printers(server)
         except cups_cli.CupsToolMissing as exc:
-            QMessageBox.warning(self, "CUPS nástroje chýbajú", str(exc))
+            QMessageBox.warning(self, "CUPS tools missing", str(exc))
             return
         if not devices:
-            self.list_widget.addItem("Server neodpovedal alebo nezdieľa žiadne tlačiarne")
+            self.list_widget.addItem("Server did not respond or shares no printers")
             self.list_widget.setEnabled(False)
             return
         self.list_widget.setEnabled(True)
@@ -155,13 +155,13 @@ class AddPrinterDialog(QDialog):
     def __init__(self, parent=None) -> None:
         """Initialize the add-printer dialog with discovery tabs and printer configuration fields."""
         super().__init__(parent)
-        self.setWindowTitle("Pridať tlačiareň")
+        self.setWindowTitle("Add printer")
         self.resize(560, 480)
         self.selected_device: DiscoveredPrinter | None = None
 
-        self.usb_tab = _DiscoveryTab({"usb"}, "Zapojené USB tlačiarne rozpoznané systémom:")
+        self.usb_tab = _DiscoveryTab({"usb"}, "USB printers connected and recognised by the system:")
         self.network_tab = _DiscoveryTab(
-            {"network-mdns", "network-ip"}, "Tlačiarne nájdené v sieti (autodiscovery cez mDNS/IPP):"
+            {"network-mdns", "network-ip"}, "Printers found on the network (autodiscovery via mDNS/IPP):"
         )
         self.remote_tab = _RemoteCupsTab()
 
@@ -171,20 +171,20 @@ class AddPrinterDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self.usb_tab, "USB")
-        tabs.addTab(self.network_tab, "Sieť (autodiscovery)")
-        tabs.addTab(self.remote_tab, "Vzdialený CUPS server")
+        tabs.addTab(self.network_tab, "Network (autodiscovery)")
+        tabs.addTab(self.remote_tab, "Remote CUPS server")
         tabs.currentChanged.connect(lambda _: self._on_device_selected(None))
 
         self.name_edit = QLineEdit()
         self.description_edit = QLineEdit()
         self.location_edit = QLineEdit()
-        self.shared_check = QCheckBox("Zdieľať v sieti")
-        self.default_check = QCheckBox("Nastaviť ako predvolenú")
+        self.shared_check = QCheckBox("Share on network")
+        self.default_check = QCheckBox("Set as default")
 
         form = QFormLayout()
-        form.addRow("Názov frontu:", self.name_edit)
-        form.addRow("Popis:", self.description_edit)
-        form.addRow("Umiestnenie:", self.location_edit)
+        form.addRow("Queue name:", self.name_edit)
+        form.addRow("Description:", self.description_edit)
+        form.addRow("Location:", self.location_edit)
         form.addRow(self.shared_check)
         form.addRow(self.default_check)
 
@@ -218,7 +218,7 @@ class AddPrinterDialog(QDialog):
         if self.selected_device is None:
             return
         if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Chýba názov", "Zadaj názov tlačovej fronty.")
+            QMessageBox.warning(self, "Missing name", "Enter a print queue name.")
             return
         super().accept()
 

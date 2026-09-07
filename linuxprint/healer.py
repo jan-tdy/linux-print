@@ -91,8 +91,8 @@ def plan_repairs(
                 old_uri=printer.uri,
                 new_uri=match.uri,
                 reason=(
-                    f"Tlačiareň '{name}' zmenila adresu "
-                    f"({printer.uri} -> {match.uri}); opravujem CUPS frontu."
+                    f"Printer '{name}' changed address "
+                    f"({printer.uri} -> {match.uri}); repairing the CUPS queue."
                 ),
                 legacy_transport_allowed=record.legacy_transport_allowed,
             )
@@ -117,7 +117,7 @@ def apply_repairs(repairs: list[Repair]) -> list[RepairResult]:
             repair.new_uri,
             allow_legacy_transport=repair.legacy_transport_allowed,
         )
-        message = repair.reason if result.ok else f"Oprava zlyhala: {result.stderr.strip()}"
+        message = repair.reason if result.ok else f"Repair failed: {result.stderr.strip()}"
         results.append(RepairResult(repair=repair, ok=result.ok, message=message))
     return results
 

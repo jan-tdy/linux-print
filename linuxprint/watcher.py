@@ -55,7 +55,7 @@ class Watcher(QObject):
         except cups_cli.CupsToolMissing as exc:
             self.error.emit(str(exc))
         except Exception as exc:  # defensive: never let the watcher die silently
-            self.error.emit(f"Neočakávaná chyba pri kontrole tlačiarní: {exc}")
+            self.error.emit(f"Unexpected error while checking printers: {exc}")
 
     def _run_cycle(self) -> None:
         """

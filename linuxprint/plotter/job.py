@@ -20,6 +20,12 @@ MEDIA_PRESETS: dict[str, tuple[str | None, float, float]] = {
     "cameo_12x24": ("cameo_12x24", 304.8, 609.6),
     "portrait_8x12": ("portrait_8x12", 203.2, 304.8),
     "portrait_8_5x12": ("portrait_8_5x12", 215.9, 304.8),
+    # Matless/roll-fed vinyl: "no_mat" has no cutting-mat size limit of its
+    # own (see CAMEO_MATS in the vendored driver), so the width/height here
+    # are just a nominal placeholder -- the Plotter tab overrides both via
+    # media_width_mm/media_height_mm (roll width from the UI, length
+    # computed from the actual design) when this preset is selected.
+    "roll_vinyl": ("no_mat", 304.8, 500.0),
 }
 
 DEFAULT_MEDIA_PRESET = "A4"

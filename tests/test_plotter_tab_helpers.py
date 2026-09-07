@@ -1,15 +1,25 @@
-"""Tests for plotter_tab.py's module-level raster-import helpers.
+"""Tests for plotter_tab.py's module-level raster-import and shape helpers.
 
 These are plain functions with no Qt widget/QApplication dependency (only
 actually instantiating PlotterTab() would need a running QApplication), so
 they're safe to unit test directly like any other pure function here.
+_shape_outline_points only touches QPointF, a plain value type that (unlike
+QFont/QPainterPath.addText, used for the text tool) doesn't need a
+QGuiApplication either.
 """
 
 import os
 
 import pytest
+from PyQt6.QtCore import QPointF
 
-from linuxprint.gui.plotter_tab import _read_png_dpi, _render_pdf_first_page
+from linuxprint.gui.plotter_tab import (
+    _read_png_dpi,
+    _regmark_settings_for_canvas,
+    _render_pdf_first_page,
+    _shape_outline_points,
+)
+from linuxprint.plotter.regmarks import MARK_SIZE_MM, merge_raster_with_regmarks
 
 
 def test_read_png_dpi_returns_declared_value(tmp_path):
@@ -91,3 +101,68 @@ def test_render_pdf_first_page_produces_a_png(tmp_path):
         assert result.info.get("dpi") == pytest.approx((150.0, 150.0), abs=0.05)
     finally:
         os.unlink(out_path)
+
+
+def test_shape_outline_points_square_forces_equal_sides():
+    points = _shape_outline_points("square", QPointF(0, 0), QPointF(10, 30))
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    assert max(xs) - min(xs) == pytest.approx(30.0)
+    assert max(ys) - min(ys) == pytest.approx(30.0)
+
+
+def test_shape_outline_points_rectangle_keeps_free_aspect_ratio():
+    points = _shape_outline_points("rectangle", QPointF(0, 0), QPointF(10, 30))
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    assert max(xs) - min(xs) == pytest.approx(10.0)
+    assert max(ys) - min(ys) == pytest.approx(30.0)
+
+
+def test_shape_outline_points_circle_is_closed_and_centered():
+    points = _shape_outline_points("circle", QPointF(0, 0), QPointF(20, 20))
+    assert points[0] == pytest.approx(points[-1])  # closed contour
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    assert (min(xs) + max(xs)) / 2 == pytest.approx(10.0, abs=0.01)
+    assert (min(ys) + max(ys)) / 2 == pytest.approx(10.0, abs=0.01)
+
+
+def test_shape_outline_points_triangle_has_three_corners():
+    points = _shape_outline_points("triangle", QPointF(0, 0), QPointF(10, 20))
+    assert points[0] == points[-1]  # closed contour
+    assert len(points) == 4  # 3 corners + closing point
+
+
+def test_shape_outline_points_returns_empty_for_a_zero_size_drag():
+    assert _shape_outline_points("square", QPointF(5, 5), QPointF(5, 5)) == []
+
+
+def test_regmark_settings_for_canvas_scales_down_for_a_small_image():
+    # Regression test for a real bug report: a 600x600px PNG at 96 DPI is
+    # 159x159mm, well under the *fixed* default RegmarkSettings layout
+    # (marks out to 195x250mm), which used to make merge_raster_with_regmarks
+    # raise "too small" on perfectly normal small artwork. The layout must
+    # instead scale down to fit whatever canvas is actually being printed.
+    settings = _regmark_settings_for_canvas(159.0, 159.0, quad=False)
+    assert settings.enabled is True
+    assert settings.width_mm < 159.0
+    assert settings.length_mm < 159.0
+
+
+def test_regmark_settings_for_canvas_never_shrinks_below_one_mark():
+    settings = _regmark_settings_for_canvas(10.0, 10.0, quad=True)
+    assert settings.width_mm >= MARK_SIZE_MM
+    assert settings.length_mm >= MARK_SIZE_MM
+
+
+def test_small_png_that_used_to_be_rejected_now_merges_successfully(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    png_path = tmp_path / "small600.png"
+    Image.new("RGB", (600, 600), "white").save(png_path, dpi=(96, 96))
+
+    settings = _regmark_settings_for_canvas(159.0, 159.0, quad=False)
+    out_path = merge_raster_with_regmarks(str(png_path), settings, dpi=96.0)
+    assert os.path.exists(out_path)
