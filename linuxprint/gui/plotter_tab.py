@@ -8,16 +8,19 @@ NOTICE.md for why (GPL-2.0 vendored driver, MIT app).
 from __future__ import annotations
 
 import os
+import tempfile
 
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainterPath, QPen
+from PyQt6.QtCore import QPointF, Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QBrush, QColor, QKeyEvent, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGraphicsPathItem,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -43,6 +46,61 @@ from ..plotter.svg_import import ParsedSvg, parse_svg
 # flip is needed -- see svg_import.py's module docstring).
 PREVIEW_PX_PER_MM = 3.0
 
+# CSS/SVG default: 96 px (our raster background's assumed unit, absent
+# other information) per inch, 25.4mm per inch.
+_DEFAULT_RASTER_DPI = 96.0
+
+_CUT_COLOR = "#e53935"
+_DRAW_COLOR = "#333333"
+_REGMARK_COLOR = "#1565c0"
+
+
+def _read_png_dpi(path: str) -> float:
+    """Best-effort read of a PNG's own declared DPI (many design tools
+    write one, e.g. 300 for print-ready assets); 96 (the CSS/web default)
+    when Pillow isn't installed or the file doesn't declare one."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return _DEFAULT_RASTER_DPI
+    try:
+        with Image.open(path) as img:
+            dpi = img.info.get("dpi")
+            if dpi:
+                return float(dpi[0])
+    except Exception:
+        pass
+    return _DEFAULT_RASTER_DPI
+
+
+def _render_pdf_first_page(pdf_path: str, dpi: float = 200.0) -> str:
+    """Render a PDF's first page to a temp PNG file and return its path.
+
+    Uses pypdfium2 (BSD-3-Clause/Apache-2.0, both permissive -- imported
+    directly into this MIT-licensed process, unlike the vendored GPL-2.0
+    cutter driver which runs in its own subprocess for exactly this
+    reason). PyMuPDF was deliberately not used here: despite being a
+    common choice for this, it's dual-licensed under AGPL-3.0 or a paid
+    Artifex commercial license, neither of which this app can adopt for a
+    plain in-process import.
+
+    An optional dependency of this one import path, not needed for
+    PNG/SVG artwork -- raises ImportError if missing.
+    """
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(pdf_path)
+    try:
+        page = doc[0]
+        bitmap = page.render(scale=dpi / 72.0)  # PDF's native unit is 1/72 inch
+        image = bitmap.to_pil()
+        fd, out_path = tempfile.mkstemp(suffix=".png", prefix="jadiv-print-center-pdf-")
+        os.close(fd)
+        image.save(out_path, format="PNG")
+        return out_path
+    finally:
+        doc.close()
+
 
 class _PlotWorker(QObject):
     # Note: not named "event" -- that shadows QObject.event() and breaks
@@ -64,13 +122,64 @@ class _PlotWorker(QObject):
         self.finished.emit(final)
 
 
+class _DrawingView(QGraphicsView):
+    """QGraphicsView that, while the owning tab is in a draw mode, lets the
+    user click to place polyline points directly on the canvas. Outside a
+    draw mode it behaves like a plain QGraphicsView (pan/zoom untouched)."""
+
+    def __init__(self, scene: QGraphicsScene, owner: "PlotterTab") -> None:
+        super().__init__(scene)
+        self._owner = owner
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._owner.draw_mode is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._owner._on_canvas_click(self.mapToScene(event.position().toPoint()))
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._owner.draw_mode is not None and self._owner._drawing_points:
+            self._owner._on_canvas_move(self.mapToScene(event.position().toPoint()))
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if self._owner.draw_mode is not None:
+            self._owner._finish_drawing()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._owner.draw_mode is not None:
+            if event.key() == Qt.Key.Key_Escape:
+                self._owner._cancel_drawing()
+                return
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._owner._finish_drawing()
+                return
+        super().keyPressEvent(event)
+
+
 class PlotterTab(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.parsed: ParsedSvg | None = None
         self.svg_path: str | None = None
+        self.background_image_path: str | None = None
+        self.background_dpi: float = _DEFAULT_RASTER_DPI
         self._thread: QThread | None = None
         self._worker: _PlotWorker | None = None
+
+        # Manual drawing state: draw_mode is None ("select/pan"), "cut" or
+        # "pen"; _drawing_points accumulates the in-progress polyline (in
+        # scene coordinates) between clicks; _drawn_shapes is a simple undo
+        # stack of (mode, path_mm) for shapes already committed into
+        # self.parsed.
+        self.draw_mode: str | None = None
+        self._drawing_points: list[QPointF] = []
+        self._drawing_path_item: QGraphicsPathItem | None = None
+        self._drawn_shapes: list[tuple[str, list[tuple[float, float]]]] = []
 
         self._build_ui()
         self._refresh_device_status()
@@ -86,8 +195,11 @@ class PlotterTab(QWidget):
         top_row = QHBoxLayout()
         load_btn = QPushButton("Načítať SVG…")
         load_btn.clicked.connect(self._on_load_svg)
-        self.file_label = QLabel("Žiadny súbor")
         top_row.addWidget(load_btn)
+        load_image_btn = QPushButton("Načítať obrázok (PNG/PDF)…")
+        load_image_btn.clicked.connect(self._on_load_image)
+        top_row.addWidget(load_image_btn)
+        self.file_label = QLabel("Žiadny súbor")
         top_row.addWidget(self.file_label, 1)
         self.device_label = QLabel("Zisťujem zariadenie…")
         refresh_device_btn = QPushButton("Obnoviť zariadenie")
@@ -106,8 +218,8 @@ class PlotterTab(QWidget):
         # nothing on it -- especially since the pen-path color below is a
         # dark gray that all but disappears against a dark background.
         self.scene.setBackgroundBrush(QColor("#ffffff"))
-        self.view = QGraphicsView(self.scene)
-        self.view.setRenderHints(self.view.renderHints())
+        self.view = _DrawingView(self.scene, self)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         splitter.addWidget(self.view)
 
         controls = QWidget()
@@ -139,11 +251,43 @@ class PlotterTab(QWidget):
 
         controls_layout.addWidget(settings_group)
 
+        draw_group = QGroupBox("Kresliaci nástroj")
+        draw_layout = QVBoxLayout(draw_group)
+        draw_layout.addWidget(QLabel("Klikaním pridávaj body, dvojklikom/Enter dokonči čiaru, Esc zruší."))
+        mode_row = QHBoxLayout()
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        self.mode_none_btn = QPushButton("Vybrať / posúvať")
+        self.mode_none_btn.setCheckable(True)
+        self.mode_none_btn.setChecked(True)
+        self.mode_cut_btn = QPushButton("Kresliť rez")
+        self.mode_cut_btn.setCheckable(True)
+        self.mode_pen_btn = QPushButton("Kresliť pero")
+        self.mode_pen_btn.setCheckable(True)
+        for btn in (self.mode_none_btn, self.mode_cut_btn, self.mode_pen_btn):
+            self.mode_group.addButton(btn)
+            mode_row.addWidget(btn)
+        self.mode_none_btn.clicked.connect(lambda: self._on_set_draw_mode(None))
+        self.mode_cut_btn.clicked.connect(lambda: self._on_set_draw_mode("cut"))
+        self.mode_pen_btn.clicked.connect(lambda: self._on_set_draw_mode("pen"))
+        draw_layout.addLayout(mode_row)
+        edit_row = QHBoxLayout()
+        undo_btn = QPushButton("Späť")
+        undo_btn.clicked.connect(self._on_undo_shape)
+        edit_row.addWidget(undo_btn)
+        clear_btn = QPushButton("Vymazať kresbu")
+        clear_btn.clicked.connect(self._on_clear_drawing)
+        edit_row.addWidget(clear_btn)
+        draw_layout.addLayout(edit_row)
+        controls_layout.addWidget(draw_group)
+
         regmark_group = QGroupBox("Tlač a rez (registračné značky)")
         regmark_layout = QFormLayout(regmark_group)
         self.regmark_check = QCheckBox("Použiť registračné značky")
+        self.regmark_check.toggled.connect(self._render_preview)
         regmark_layout.addRow(self.regmark_check)
         self.quad_check = QCheckBox("4 značky (rohy)")
+        self.quad_check.toggled.connect(self._render_preview)
         regmark_layout.addRow(self.quad_check)
         self.printer_combo = QComboBox()
         regmark_layout.addRow("Tlačiareň:", self.printer_combo)
@@ -181,7 +325,7 @@ class PlotterTab(QWidget):
             btn.setEnabled(enabled)
 
     # ------------------------------------------------------------------
-    # SVG loading + preview
+    # SVG / image loading + preview
     # ------------------------------------------------------------------
 
     def _on_load_svg(self) -> None:
@@ -194,33 +338,231 @@ class PlotterTab(QWidget):
             QMessageBox.critical(self, "Chyba pri načítaní SVG", str(exc))
             return
         self.svg_path = path
-        self.file_label.setText(
-            f"{os.path.basename(path)}  "
-            f"({len(self.parsed.cut_paths)} rez. čiar, {len(self.parsed.draw_paths)} kresliacich čiar)"
-        )
+        self.background_image_path = None
+        self._drawn_shapes = []
+        self._update_file_label()
         self._render_preview()
         self._set_actions_enabled(True)
 
+    def _on_load_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Načítať obrázok", "", "Obrázky (*.png *.pdf)")
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        try:
+            if ext == ".pdf":
+                try:
+                    png_path = _render_pdf_first_page(path)
+                except ImportError as exc:
+                    QMessageBox.critical(
+                        self,
+                        "Chýba závislosť",
+                        f"Import PDF vyžaduje pypdfium2 a Pillow ({exc}). Nainštaluj:\n"
+                        "    python3 -m pip install --user pypdfium2 Pillow",
+                    )
+                    return
+                self.background_image_path = png_path
+                self.background_dpi = 200.0
+            elif ext == ".png":
+                self.background_image_path = path
+                self.background_dpi = _read_png_dpi(path)
+            else:
+                QMessageBox.critical(self, "Nepodporovaný formát", "Podporované sú iba súbory .png a .pdf.")
+                return
+        except Exception as exc:
+            QMessageBox.critical(self, "Chyba pri načítaní obrázka", str(exc))
+            return
+
+        # The image becomes what print-and-cut prints; any existing
+        # cut/draw paths (from an earlier SVG import or hand-drawn) are
+        # kept, since they describe what the cutter does, independent of
+        # what gets printed.
+        self.svg_path = None
+        self.file_label.setText(f"{os.path.basename(path)}  (obrázok na tlač -- rezacie čiary priprav ručne)")
+        self._render_preview()
+        self._set_actions_enabled(True)
+
+    def _update_file_label(self) -> None:
+        if self.parsed is None:
+            cut_count = draw_count = 0
+        else:
+            cut_count = len(self.parsed.cut_paths)
+            draw_count = len(self.parsed.draw_paths)
+        if self.svg_path:
+            name = os.path.basename(self.svg_path)
+        elif self.background_image_path:
+            name = os.path.basename(self.background_image_path)
+        else:
+            name = "Žiadny súbor"
+        self.file_label.setText(f"{name}  ({cut_count} rez. čiar, {draw_count} kresliacich čiar)")
+
     def _render_preview(self) -> None:
         self.scene.clear()
-        if self.parsed is None:
+        # scene.clear() just deleted the QGraphicsItem the in-progress
+        # drawing was using, if any -- _refresh_drawing_item() below makes
+        # a fresh one when there's a drawing in progress.
+        self._drawing_path_item = None
+
+        if self.background_image_path is not None:
+            pixmap = QPixmap(self.background_image_path)
+            if not pixmap.isNull():
+                bg_item = QGraphicsPixmapItem(pixmap)
+                scale = PREVIEW_PX_PER_MM / (self.background_dpi / 25.4)
+                bg_item.setScale(scale)
+                bg_item.setZValue(-10)
+                self.scene.addItem(bg_item)
+
+        if self.parsed is not None:
+            cut_pen = QPen(QColor(_CUT_COLOR))
+            cut_pen.setWidthF(0.6)
+            draw_pen = QPen(QColor(_DRAW_COLOR))
+            draw_pen.setWidthF(0.6)
+            for pen, paths in ((cut_pen, self.parsed.cut_paths), (draw_pen, self.parsed.draw_paths)):
+                for path in paths:
+                    if len(path) < 2:
+                        continue
+                    painter_path = QPainterPath()
+                    painter_path.moveTo(path[0][0] * PREVIEW_PX_PER_MM, path[0][1] * PREVIEW_PX_PER_MM)
+                    for x, y in path[1:]:
+                        painter_path.lineTo(x * PREVIEW_PX_PER_MM, y * PREVIEW_PX_PER_MM)
+                    item = QGraphicsPathItem(painter_path)
+                    item.setPen(pen)
+                    self.scene.addItem(item)
+
+        if self.regmark_check.isChecked():
+            self._render_regmark_overlay()
+
+        if self._drawing_points:
+            self._refresh_drawing_item()
+
+        bounds = self.scene.itemsBoundingRect()
+        if not bounds.isEmpty():
+            self.view.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _render_regmark_overlay(self) -> None:
+        """Show where the registration-mark squares will actually print,
+        using the same default RegmarkSettings placement print-and-cut
+        itself uses -- so the layout can be checked before committing
+        paper/material to it."""
+        settings = RegmarkSettings(enabled=True, quad=self.quad_check.isChecked())
+        pen = QPen(QColor(_REGMARK_COLOR))
+        pen.setWidthF(0.6)
+        brush = QBrush(QColor(_REGMARK_COLOR))
+        brush.setStyle(Qt.BrushStyle.Dense6Pattern)
+        size = regmarks.MARK_SIZE_MM * PREVIEW_PX_PER_MM
+        for x_mm, y_mm in regmarks.regmark_points_mm(settings):
+            rect_item = QGraphicsRectItem(x_mm * PREVIEW_PX_PER_MM, y_mm * PREVIEW_PX_PER_MM, size, size)
+            rect_item.setPen(pen)
+            rect_item.setBrush(brush)
+            self.scene.addItem(rect_item)
+
+    # ------------------------------------------------------------------
+    # Manual line drawing
+    # ------------------------------------------------------------------
+
+    def _on_set_draw_mode(self, mode: str | None) -> None:
+        self._cancel_drawing()
+        self.draw_mode = mode
+        if mode is not None:
+            self.view.setFocus()
+
+    def _drawing_pen(self) -> QPen:
+        color = _CUT_COLOR if self.draw_mode == "cut" else _DRAW_COLOR
+        pen = QPen(QColor(color))
+        pen.setWidthF(0.6)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        return pen
+
+    def _refresh_drawing_item(self) -> None:
+        if self._drawing_path_item is not None:
+            self.scene.removeItem(self._drawing_path_item)
+            self._drawing_path_item = None
+        if not self._drawing_points:
             return
-        cut_pen = QPen(QColor("#e53935"))
-        cut_pen.setWidthF(0.5)
-        draw_pen = QPen(QColor("#333333"))
-        draw_pen.setWidthF(0.5)
-        for pen, paths in ((cut_pen, self.parsed.cut_paths), (draw_pen, self.parsed.draw_paths)):
-            for path in paths:
-                if len(path) < 2:
-                    continue
-                painter_path = QPainterPath()
-                painter_path.moveTo(path[0][0] * PREVIEW_PX_PER_MM, path[0][1] * PREVIEW_PX_PER_MM)
-                for x, y in path[1:]:
-                    painter_path.lineTo(x * PREVIEW_PX_PER_MM, y * PREVIEW_PX_PER_MM)
-                item = QGraphicsPathItem(painter_path)
-                item.setPen(pen)
-                self.scene.addItem(item)
-        self.view.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        path = QPainterPath()
+        path.moveTo(self._drawing_points[0])
+        for point in self._drawing_points[1:]:
+            path.lineTo(point)
+        item = QGraphicsPathItem(path)
+        item.setPen(self._drawing_pen())
+        item.setZValue(10)
+        self.scene.addItem(item)
+        self._drawing_path_item = item
+
+    def _on_canvas_click(self, scene_pos: QPointF) -> None:
+        self._drawing_points.append(scene_pos)
+        self._refresh_drawing_item()
+
+    def _on_canvas_move(self, scene_pos: QPointF) -> None:
+        if not self._drawing_points:
+            return
+        path = QPainterPath()
+        path.moveTo(self._drawing_points[0])
+        for point in self._drawing_points[1:]:
+            path.lineTo(point)
+        path.lineTo(scene_pos)
+        if self._drawing_path_item is None:
+            item = QGraphicsPathItem(path)
+            item.setPen(self._drawing_pen())
+            item.setZValue(10)
+            self.scene.addItem(item)
+            self._drawing_path_item = item
+        else:
+            self._drawing_path_item.setPath(path)
+
+    def _finish_drawing(self) -> None:
+        if len(self._drawing_points) < 2:
+            self._cancel_drawing()
+            return
+        path_mm = [(p.x() / PREVIEW_PX_PER_MM, p.y() / PREVIEW_PX_PER_MM) for p in self._drawing_points]
+        if self.parsed is None:
+            self.parsed = ParsedSvg()
+        if self.draw_mode == "cut":
+            self.parsed.cut_paths.append(path_mm)
+        else:
+            self.parsed.draw_paths.append(path_mm)
+        self._drawn_shapes.append((self.draw_mode, path_mm))
+
+        self._drawing_points = []
+        if self._drawing_path_item is not None:
+            self.scene.removeItem(self._drawing_path_item)
+            self._drawing_path_item = None
+
+        self._update_file_label()
+        self._render_preview()
+        self._set_actions_enabled(True)
+
+    def _cancel_drawing(self) -> None:
+        self._drawing_points = []
+        if self._drawing_path_item is not None:
+            self.scene.removeItem(self._drawing_path_item)
+            self._drawing_path_item = None
+
+    def _on_undo_shape(self) -> None:
+        if not self._drawn_shapes or self.parsed is None:
+            return
+        kind, path_mm = self._drawn_shapes.pop()
+        target = self.parsed.cut_paths if kind == "cut" else self.parsed.draw_paths
+        if path_mm in target:
+            target.remove(path_mm)
+        self._update_file_label()
+        self._render_preview()
+
+    def _on_clear_drawing(self) -> None:
+        if not self._drawn_shapes or self.parsed is None:
+            return
+        if (
+            QMessageBox.question(self, "Vymazať kresbu", "Naozaj vymazať všetky ručne nakreslené čiary?")
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        for kind, path_mm in self._drawn_shapes:
+            target = self.parsed.cut_paths if kind == "cut" else self.parsed.draw_paths
+            if path_mm in target:
+                target.remove(path_mm)
+        self._drawn_shapes = []
+        self._update_file_label()
+        self._render_preview()
 
     # ------------------------------------------------------------------
     # Device / printer status
@@ -275,6 +617,26 @@ class PlotterTab(QWidget):
 
         regmark_settings = RegmarkSettings(enabled=regmark, quad=self.quad_check.isChecked())
         return PlotJob(passes=passes, media_preset=self.media_combo.currentText(), regmark=regmark_settings)
+
+    def _confirm_job(self, job: PlotJob, title: str, extra_message: str = "") -> bool:
+        """Show a summary of what's about to be sent to the physical
+        cutter (media, path counts, speed/pressure, regmarks) and ask for
+        confirmation -- cutting is irreversible and wastes material if the
+        wrong settings go out."""
+        _cuttingmat, width_mm, height_mm = job.resolved_media()
+        lines: list[str] = []
+        if extra_message:
+            lines.append(extra_message)
+            lines.append("")
+        lines.append(f"Médium: {job.media_preset} ({width_mm:.0f} x {height_mm:.0f} mm)")
+        for p in job.passes:
+            tool_label = "Čepeľ" if p.tool == "blade" else "Pero"
+            lines.append(f"{tool_label}: {len(p.paths)} čiar, rýchlosť {p.speed}, tlak {p.pressure}")
+        if job.regmark.enabled:
+            lines.append("Registračné značky: zapnuté" + (" (4 rohy)" if job.regmark.quad else ""))
+        lines.append("")
+        lines.append("Odoslať úlohu na zariadenie?")
+        return QMessageBox.question(self, title, "\n".join(lines)) == QMessageBox.StandardButton.Yes
 
     def _run_job(self, job: PlotJob) -> None:
         self.log_view.append(f"Spúšťam úlohu ({len(job.passes)} prechodov)…")
@@ -332,45 +694,65 @@ class PlotterTab(QWidget):
 
     def _on_cut(self) -> None:
         job = self._build_job(include_cut=True, include_draw=False, regmark=False)
-        if job is not None:
+        if job is not None and self._confirm_job(job, "Vyrezať"):
             self._run_job(job)
 
     def _on_draw(self) -> None:
         job = self._build_job(include_cut=False, include_draw=True, regmark=False)
-        if job is not None:
+        if job is not None and self._confirm_job(job, "Nakresliť perom"):
             self._run_job(job)
 
     def _on_print_and_cut(self) -> None:
-        if self.parsed is None or self.svg_path is None:
+        if self.svg_path is None and self.background_image_path is None:
             return
         printer = self.printer_combo.currentText()
         if not printer:
             QMessageBox.information(self, "Chýba tlačiareň", "Vyber tlačiareň pre krok tlače.")
             return
-        if QMessageBox.question(
-            self,
-            "Tlač a rez",
-            "Najprv sa vytlačí návrh s registračnými značkami. Po vytlačení vlož "
-            "list na rezaciu podložku (zarovnaný podľa značiek) a pokračuj rezaním.\n\n"
-            "Vytlačiť teraz?",
-        ) != QMessageBox.StandardButton.Yes:
+        if (
+            QMessageBox.question(
+                self,
+                "Tlač a rez",
+                "Najprv sa vytlačí návrh s registračnými značkami. Po vytlačení vlož "
+                "list na rezaciu podložku (zarovnaný podľa značiek) a pokračuj rezaním.\n\n"
+                "Vytlačiť teraz?",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
             return
 
         regmark_settings = RegmarkSettings(enabled=True, quad=self.quad_check.isChecked())
-        merged_path = regmarks.merge_svg_with_regmarks(self.svg_path, regmark_settings)
+        try:
+            if self.background_image_path is not None:
+                merged_path = regmarks.merge_raster_with_regmarks(
+                    self.background_image_path, regmark_settings, dpi=self.background_dpi
+                )
+            else:
+                merged_path = regmarks.merge_svg_with_regmarks(self.svg_path, regmark_settings)
+        except ImportError as exc:
+            QMessageBox.critical(
+                self,
+                "Chýba závislosť",
+                f"Tlač obrázka s registračnými značkami vyžaduje Pillow ({exc}).\n"
+                "Nainštaluj: python3 -m pip install --user Pillow",
+            )
+            return
+
         result = cups_cli.submit_print_job(printer, merged_path, title="Jadiv Print Center - tlač a rez")
         if not result.ok:
             QMessageBox.critical(self, "Tlač zlyhala", result.stderr or "Neznáma chyba lp.")
             return
 
-        if QMessageBox.question(
-            self,
-            "Pokračovať rezom",
-            "List je vytlačený. Po umiestnení na rezaciu podložku pokračuj rezom "
-            "(zariadenie samo nájde registračné značky).",
-        ) != QMessageBox.StandardButton.Yes:
-            return
-
         job = self._build_job(include_cut=True, include_draw=False, regmark=True)
-        if job is not None:
-            self._run_job(job)
+        if job is None:
+            return
+        if not self._confirm_job(
+            job,
+            "Pokračovať rezom",
+            extra_message=(
+                "List je vytlačený. Po umiestnení na rezaciu podložku pokračuj rezom "
+                "(zariadenie samo nájde registračné značky)."
+            ),
+        ):
+            return
+        self._run_job(job)

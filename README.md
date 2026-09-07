@@ -5,7 +5,8 @@ CUPS-based distro) that handles USB, network and remote-CUPS-server
 printers with autodiscovery -- and, unlike the stock Linux print stack,
 keeps working after a printer's IP address or port changes. It also has a
 **Plotter tab** for Silhouette Cameo cutting plotters (USB, Cameo 4/5
-family) -- SVG import, cut/pen, and print-and-cut.
+family) -- SVG/PNG/PDF import, a manual line-drawing tool, cut/pen, and
+print-and-cut.
 
 Made by JapySoft TDY.
 
@@ -95,17 +96,70 @@ own quick "is anything plugged in" status check doesn't name them).
   segments) via `svgelements`. Convention: a **red stroke** (`#ff0000`)
   means *cut with the blade*; anything else (including a shape with no
   stroke at all) means *draw with the pen*. Draw a guide line in a
-  different color than red if you want it drawn, not cut.
+  different color than red if you want it drawn, not cut. See "Getting an
+  AI to draw the SVG for you" below for a ready-made prompt covering these
+  conventions.
+- **Load PNG/PDF** -- imports a raster image (a PDF's first page is
+  rendered to an image) as the artwork to *print* during print-and-cut. A
+  raster image has no vector paths of its own, so it's shown as a
+  reference layer under the canvas -- draw the actual cut/pen lines by
+  hand on top of it (see below) tracing the parts you want cut.
+- **Manual drawing tool** -- draw cut or pen polylines directly on the
+  canvas without needing an SVG at all: pick "Kresliť rez" or "Kresliť
+  pero", click to place points, finish with a double-click or Enter,
+  cancel with Escape. "Späť" undoes the last shape, "Vymazať kresbu"
+  clears everything hand-drawn. Hand-drawn shapes combine with anything
+  imported from an SVG -- draw extra cut lines around an imported design,
+  or start a job from nothing but freehand lines.
 - **Cut** / **Draw with pen** -- send the cut or pen paths to the cutter.
   Force (blade pressure / pen pressure) and speed are adjustable; media
-  presets cover A4, Letter, and a few common Cameo cutting mats.
-- **Print and cut** -- prints the design plus 3 registration squares to a
-  CUPS printer of your choice, then (once you've placed the printed sheet
-  on the cutting mat) sends the cut with the cutter's optical
+  presets cover A4, Letter, and a few common Cameo cutting mats. Both (and
+  print-and-cut's cutting step) show a confirmation summarizing exactly
+  what's about to be sent -- media, path counts, speed/pressure -- before
+  anything physically happens, since a wrong setting wastes material or a
+  blade pass.
+- **Registration-mark preview** -- ticking "Použiť registračné značky"
+  overlays where the marks will actually print (in blue) directly on the
+  canvas, so misalignment with the design is obvious before committing
+  paper to it, not after.
+- **Print and cut** -- prints the design (an SVG's vector content, or an
+  imported PNG/PDF's raster content) plus registration squares to a CUPS
+  printer of your choice, then (once you've placed the printed sheet on
+  the cutting mat) sends the cut with the cutter's optical
   registration-mark search enabled, so the cut lines up with what was
   printed even if the sheet isn't perfectly aligned by hand.
 - A status line shows whether a Cameo is currently detected over USB
   (needs `libusb-1.0-0`, which Ubuntu ships by default).
+
+### Getting an AI to draw the SVG for you
+
+If you don't want to hand-draw a design, most AI image/vector generators
+can produce one -- but only if you tell them the exact conventions this
+tool expects. Paste something like this into the prompt:
+
+> Create an SVG file for cutting on a Silhouette Cameo cutting plotter.
+> Requirements:
+> - Use `stroke="#FF0000"` (pure red) for every line that should be
+>   **cut** with the blade. Use any other clearly dark color (e.g. black
+>   `#000000`) for lines that should only be **drawn** with a pen --
+>   never use white, very pale, or near-white colors for any line, since
+>   those won't be visible when checking the design.
+> - Every shape must be an open or closed **path/line with a stroke**, not
+>   a filled shape with no stroke -- the cutter follows stroke outlines,
+>   it does not cut solid fills.
+> - Use a reasonable stroke width (around 0.5-2 user units) -- a stroke
+>   width of 0 or an extremely thin/thick value can confuse some SVG
+>   viewers, though the cutter itself only follows the path's centerline.
+> - Set an explicit `viewBox` and `width`/`height` in real physical units
+>   (mm, cm or in) matching the design's intended physical size -- don't
+>   leave the size ambiguous or purely in unitless pixels.
+> - Keep the design flat (no nested transforms/groups with unusual scale
+>   or rotation) and avoid text elements -- convert any text to outlined
+>   paths first, since the cutter only understands paths, not fonts.
+
+The Plotter tab's own convention (red = cut, anything else = draw) is
+exactly what that prompt asks for, so an SVG produced this way should load
+and classify correctly without any manual color editing.
 
 **USB permissions:** by default only root can open the raw USB device.
 Install the udev rule once so your own user account can:
@@ -127,7 +181,13 @@ registration-mark search in particular needs the cutter's own optical
 sensor to actually respond; expect to do a first calibration run and check
 the underlying driver's own documentation
 (https://github.com/fablabnbg/inkscape-silhouette) if something doesn't
-line up.
+line up. The manual line-drawing tool, PNG/PDF import, and registration-mark
+preview overlay are covered by automated tests down to the data they
+produce (paths, composited pixels), but the interactive canvas behavior
+itself (mouse clicks, live rubber-banding) has only been exercised through
+direct calls to its internal handlers, not a real mouse -- if a click or
+double-click doesn't register the way you expect on your desktop, that's
+the part most likely to need a follow-up fix.
 
 ## Requirements
 
@@ -138,6 +198,9 @@ line up.
   printing works fine without them -- if they're missing, the Plotter tab
   shows a placeholder telling you what to install instead of the app
   failing to start)
+- `Pillow` and `pypdfium2` (only needed for the Plotter tab's PNG/PDF
+  import and print-and-cut with a raster image; SVG-based
+  cut/draw/print-and-cut works fine without them)
 
 Install the Python dependency:
 
@@ -243,6 +306,17 @@ This repository is MIT-licensed (see `LICENSE`), with one exception:
 - [`svgelements`](https://github.com/meerk40t/svgelements) (MIT license,
   by Tatarize) does the SVG parsing and curve flattening for the Plotter
   tab's "Load SVG" step -- used as a normal MIT dependency, not vendored.
+- [`pypdfium2`](https://github.com/pypdfium2-team/pypdfium2)
+  (BSD-3-Clause/Apache-2.0, both permissive) renders a PDF's first page
+  for the Plotter tab's "Load PNG/PDF" step. Deliberately *not* the more
+  commonly used PyMuPDF for this: PyMuPDF is dual-licensed under AGPL-3.0
+  or a paid Artifex commercial license, and unlike the vendored Graphtec
+  driver above there's no subprocess boundary here to keep that separate
+  from this MIT-licensed process, so a permissively-licensed alternative
+  was used instead.
+- [Pillow](https://python-pillow.org/) (MIT-CMU/PIL license, permissive)
+  reads PNG DPI metadata and composites registration-mark squares onto a
+  raster image for print-and-cut, used as a normal dependency.
 
 ## Published in Jadiv Code Master
 

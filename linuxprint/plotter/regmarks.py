@@ -152,3 +152,40 @@ def merge_svg_with_regmarks(svg_path: str, settings: RegmarkSettings) -> str:
     os.close(fd)
     tree.write(out_path, xml_declaration=True, encoding="utf-8")
     return out_path
+
+
+def merge_raster_with_regmarks(image_path: str, settings: RegmarkSettings, dpi: float = 96.0) -> str:
+    """Composite the registration squares directly onto a raster (PNG)
+    image, for print-and-cut when the artwork came from a PNG/PDF import
+    rather than an SVG (a raster image has no XML tree to inject <rect>
+    elements into, so this draws pixels instead).
+
+    `dpi` is the image's assumed physical resolution in pixels per inch,
+    used to convert the mm positions everything else in this app works in
+    into pixel coordinates -- pass the value the image was actually
+    produced at (a PNG's own declared DPI when it has one, or the DPI a
+    PDF page was rendered at) so marks land at the intended physical
+    position on the printed sheet.
+
+    Requires Pillow (an optional dependency of the Plotter tab's PNG/PDF
+    import feature, not needed for the SVG-only workflow) -- imported here,
+    not at module load, so importing this module doesn't require Pillow
+    just to merge marks into an SVG.
+    """
+    from PIL import Image, ImageDraw
+
+    px_per_mm = dpi / 25.4
+    with Image.open(image_path) as img:
+        img = img.convert("RGB")
+        draw = ImageDraw.Draw(img)
+        for x_mm, y_mm in regmark_points_mm(settings):
+            x0 = x_mm * px_per_mm
+            y0 = y_mm * px_per_mm
+            x1 = x0 + MARK_SIZE_MM * px_per_mm
+            y1 = y0 + MARK_SIZE_MM * px_per_mm
+            draw.rectangle([x0, y0, x1, y1], fill="#000000")
+
+        fd, out_path = tempfile.mkstemp(suffix=".png", prefix="jadiv-print-center-regmarks-")
+        os.close(fd)
+        img.save(out_path, format="PNG")
+    return out_path
