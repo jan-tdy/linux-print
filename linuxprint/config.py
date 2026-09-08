@@ -25,7 +25,7 @@ def _xdg_dir(env_var: str, default: str) -> Path:
 
 APP_ID = "jadiv-print-center"
 APP_NAME = "Jadiv Print Center"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 CONFIG_DIR = _xdg_dir("XDG_CONFIG_HOME", ".config") / APP_ID
 DATA_DIR = _xdg_dir("XDG_DATA_HOME", ".local/share") / APP_ID
