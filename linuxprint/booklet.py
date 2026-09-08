@@ -16,6 +16,8 @@ in the UI before a file is even rasterized -- doesn't require them.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass
 
 # ISO 216 paper sizes, mm. A landscape A4 sheet split down the middle
@@ -138,6 +140,13 @@ def build_booklet_pdf(
     caller exposes it as a checkbox so a wrong first test page can be
     corrected by toggling it and reprinting, rather than guessing.
 
+    Each composed A4 sheet is written out to its own small single-page PDF
+    and immediately discarded from memory, rather than keeping every
+    full-resolution sheet image (which at a print-quality DPI adds up fast
+    for a long document -- e.g. ~1.2 GiB of raw RGB for a 100-page source
+    at 300 DPI) alive at once for a single combined save. The per-sheet
+    PDFs are then merged into the final output and cleaned up.
+
     Requires pypdfium2 and Pillow (imported lazily -- see module
     docstring); raises ImportError if either is missing.
     """
@@ -150,17 +159,55 @@ def build_booklet_pdf(
         def image_for(ref: PageRef):
             return _render_page_to_image(doc, ref, dpi) if ref is not None else None
 
-        pages = []
-        for sheet in layout.sheets:
-            pages.append(_compose_sheet(image_for(sheet.front_left), image_for(sheet.front_right), dpi))
-            pages.append(
-                _compose_sheet(
+        sheet_pdf_paths: list[str] = []
+        try:
+            for sheet in layout.sheets:
+                front = _compose_sheet(image_for(sheet.front_left), image_for(sheet.front_right), dpi)
+                sheet_pdf_paths.append(_save_single_page_pdf(front, dpi))
+                back = _compose_sheet(
                     image_for(sheet.back_left), image_for(sheet.back_right), dpi, rotate_180=rotate_back
                 )
-            )
+                sheet_pdf_paths.append(_save_single_page_pdf(back, dpi))
+
+            _merge_single_page_pdfs(sheet_pdf_paths, out_pdf_path)
+        finally:
+            for path in sheet_pdf_paths:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
     finally:
         doc.close()
 
-    first, rest = pages[0], pages[1:]
-    first.save(out_pdf_path, format="PDF", save_all=True, append_images=rest, resolution=dpi)
     return layout
+
+
+def _save_single_page_pdf(image, dpi: float) -> str:
+    """Save a single composed sheet as its own one-page PDF in a temp
+    file, and return its path -- the caller merges these back together in
+    _merge_single_page_pdfs and is responsible for deleting them."""
+    fd, path = tempfile.mkstemp(suffix=".pdf", prefix="jadiv-print-center-booklet-sheet-")
+    os.close(fd)
+    image.save(path, format="PDF", resolution=dpi)
+    return path
+
+
+def _merge_single_page_pdfs(pdf_paths: list[str], out_pdf_path: str) -> None:
+    """Concatenate the given one-page PDFs, in order, into a single PDF at
+    out_pdf_path -- via pypdfium2's own page-import (each source stays a
+    compact PDF object, not a decoded-to-pixels image), rather than Pillow,
+    which only offers combining already-open, fully in-memory Image
+    objects."""
+    import pypdfium2 as pdfium
+
+    merged = pdfium.PdfDocument.new()
+    try:
+        for pdf_path in pdf_paths:
+            page_doc = pdfium.PdfDocument(pdf_path)
+            try:
+                merged.import_pages(page_doc)
+            finally:
+                page_doc.close()
+        merged.save(out_pdf_path)
+    finally:
+        merged.close()

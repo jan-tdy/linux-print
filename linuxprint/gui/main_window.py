@@ -67,15 +67,23 @@ class MainWindow(QMainWindow):
         monitor it's about to appear on -- a fixed 900x620 could otherwise
         exceed a smaller laptop screen's usable area, leaving the bottom of
         the window (and whatever tab-specific content is anchored there)
-        off-screen and unreachable."""
+        off-screen and unreachable.
+
+        The margin is only subtracted when the screen is big enough to
+        spare it -- on a screen narrower/shorter than the margin itself,
+        applying it unconditionally could produce a size larger than what's
+        actually available, defeating the whole point of clamping."""
         screen = QApplication.primaryScreen()
         if screen is None:
             return preferred_width, preferred_height
         available = screen.availableGeometry()
-        return (
-            min(preferred_width, max(available.width() - 40, 320)),
-            min(preferred_height, max(available.height() - 80, 240)),
-        )
+        width = min(preferred_width, available.width())
+        height = min(preferred_height, available.height())
+        if available.width() > 40:
+            width = min(width, available.width() - 40)
+        if available.height() > 80:
+            height = min(height, available.height() - 80)
+        return max(width, 1), max(height, 1)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         """Hide to tray on close when one is available; otherwise this is
@@ -147,12 +155,17 @@ class MainWindow(QMainWindow):
         Build the Booklet tab, or a placeholder explaining what's missing if
         its optional dependencies (pypdfium2, Pillow) aren't installed.
 
-        Imported here rather than at module load time, same reasoning as
-        _build_plotter_tab: a missing optional dependency must not crash
-        printer management, which doesn't need it.
+        Unlike _build_plotter_tab, importing booklet_tab itself doesn't pull
+        in pypdfium2/Pillow -- both are only imported lazily, deeper inside
+        the tab, once the user actually loads or builds a PDF -- so a bare
+        `import booklet_tab` never raises ImportError even when they're
+        missing. Both are probed explicitly here instead, so the missing
+        dependency shows up as this placeholder right away, not as an error
+        dialog only after the user has already picked a file.
         """
         try:
-            from .booklet_tab import BookletTab
+            import pypdfium2  # noqa: F401
+            import PIL  # noqa: F401
         except ImportError as exc:
             placeholder = QWidget()
             layout = QVBoxLayout(placeholder)
@@ -167,6 +180,8 @@ class MainWindow(QMainWindow):
             )
             layout.addStretch(1)
             return placeholder
+        from .booklet_tab import BookletTab
+
         return BookletTab()
 
     def _build_printers_tab(self) -> QWidget:

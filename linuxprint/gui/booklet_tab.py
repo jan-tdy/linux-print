@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+from typing import Callable
 
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -39,11 +41,47 @@ _DUPLEX_OPTIONS: dict[str, str] = {
 }
 
 
+class _BookletBuildWorker(QObject):
+    """Runs build_booklet_pdf on a background thread. Rendering every page
+    of a multi-page PDF at print-quality DPI and encoding the result is CPU
+    -bound work that can take seconds for a longer document -- running it
+    directly on the GUI thread (as this tab originally did) would freeze
+    the whole window for that long. import_error is split out from failed
+    so the caller can show its own "missing dependency, install with..."
+    message rather than a generic one."""
+
+    finished = pyqtSignal(object)  # BookletLayout
+    import_error = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, source_pdf_path: str, out_path: str, *, dpi: float, rotate_back: bool) -> None:
+        super().__init__()
+        self.source_pdf_path = source_pdf_path
+        self.out_path = out_path
+        self.dpi = dpi
+        self.rotate_back = rotate_back
+
+    def run(self) -> None:
+        try:
+            layout = build_booklet_pdf(
+                self.source_pdf_path, self.out_path, dpi=self.dpi, rotate_back=self.rotate_back
+            )
+        except ImportError as exc:
+            self.import_error.emit(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 -- reported to the user, not swallowed
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(layout)
+
+
 class BookletTab(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.source_pdf_path: str | None = None
         self.source_page_count: int | None = None
+        self._build_thread: QThread | None = None
+        self._build_worker: _BookletBuildWorker | None = None
         self._build_ui()
         self._refresh_printers()
         self._update_layout_preview()
@@ -202,34 +240,78 @@ class BookletTab(QWidget):
         self.printer_combo.addItems(sorted(printers.keys()))
 
     # ------------------------------------------------------------------
-    # Build the imposed PDF
+    # Build the imposed PDF (runs on a background thread -- see
+    # _BookletBuildWorker)
     # ------------------------------------------------------------------
 
-    def _build_booklet(self, out_path: str) -> bool:
-        """Run build_booklet_pdf, reporting errors via a message box.
-        Returns True on success."""
+    def _start_booklet_build(
+        self,
+        out_path: str,
+        on_success: Callable[[BookletLayout], None],
+        *,
+        on_error: Callable[[], None] | None = None,
+    ) -> None:
+        """Kick off build_booklet_pdf on a worker thread. `on_success` runs
+        (on the GUI thread) once the PDF at out_path is ready; `on_error`
+        runs instead if the build failed, e.g. to clean up a temp file the
+        caller created for out_path before this was called."""
         if self.source_pdf_path is None:
-            return False
-        try:
-            layout = build_booklet_pdf(
-                self.source_pdf_path,
-                out_path,
-                dpi=self.dpi_spin.value(),
-                rotate_back=self.rotate_back_check.isChecked(),
+            return
+        self._set_actions_enabled(False)
+        self.log_view.append("Building booklet…")
+
+        thread = QThread()
+        worker = _BookletBuildWorker(
+            self.source_pdf_path,
+            out_path,
+            dpi=self.dpi_spin.value(),
+            rotate_back=self.rotate_back_check.isChecked(),
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+
+        def handle_finished(layout: BookletLayout) -> None:
+            self._set_actions_enabled(True)
+            self.log_view.append(
+                f"Built booklet: {len(layout.sheets)} sheet(s), {layout.padded_pages} page slots."
             )
-        except ImportError as exc:
+            on_success(layout)
+
+        def handle_import_error(message: str) -> None:
+            self._set_actions_enabled(True)
+            if on_error is not None:
+                on_error()
             QMessageBox.critical(
                 self,
                 "Missing dependency",
-                f"Building the booklet requires pypdfium2 and Pillow ({exc}). Install:\n"
+                f"Building the booklet requires pypdfium2 and Pillow ({message}). Install:\n"
                 "    python3 -m pip install --user pypdfium2 Pillow",
             )
-            return False
-        except Exception as exc:
-            QMessageBox.critical(self, "Error building booklet", str(exc))
-            return False
-        self.log_view.append(f"Built booklet: {len(layout.sheets)} sheet(s), {layout.padded_pages} page slots.")
-        return True
+
+        def handle_failed(message: str) -> None:
+            self._set_actions_enabled(True)
+            if on_error is not None:
+                on_error()
+            QMessageBox.critical(self, "Error building booklet", message)
+
+        worker.finished.connect(handle_finished)
+        worker.import_error.connect(handle_import_error)
+        worker.failed.connect(handle_failed)
+        for signal in (worker.finished, worker.import_error, worker.failed):
+            signal.connect(thread.quit)
+            signal.connect(worker.deleteLater)
+        thread.finished.connect(lambda: self._on_build_thread_finished(thread, worker))
+        thread.finished.connect(thread.deleteLater)
+
+        # Keep references so they aren't garbage-collected mid-build.
+        self._build_thread = thread
+        self._build_worker = worker
+        thread.start()
+
+    def _on_build_thread_finished(self, thread: QThread, worker: "_BookletBuildWorker") -> None:
+        if self._build_thread is thread and self._build_worker is worker:
+            self._build_thread = None
+            self._build_worker = None
 
     # ------------------------------------------------------------------
     # Button handlers
@@ -244,8 +326,11 @@ class BookletTab(QWidget):
             return
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
-        if self._build_booklet(path):
+
+        def on_success(_layout: BookletLayout) -> None:
             self.log_view.append(f"Exported: {path}")
+
+        self._start_booklet_build(path, on_success)
 
     def _on_print(self) -> None:
         if self.source_pdf_path is None:
@@ -262,9 +347,14 @@ class BookletTab(QWidget):
 
         fd, tmp_path = tempfile.mkstemp(suffix=".pdf", prefix="jadiv-print-center-booklet-")
         os.close(fd)
-        try:
-            if not self._build_booklet(tmp_path):
-                return
+
+        def cleanup_temp_file() -> None:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        def on_success(_layout: BookletLayout) -> None:
             sides = _DUPLEX_OPTIONS[self.duplex_combo.currentText()]
             result = cups_cli.submit_print_job(
                 printer,
@@ -272,13 +362,10 @@ class BookletTab(QWidget):
                 title="Jadiv Print Center - booklet",
                 options={"sides": sides},
             )
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+            cleanup_temp_file()
+            if not result.ok:
+                QMessageBox.critical(self, "Print failed", result.stderr or "Unknown lp error.")
+                return
+            self.log_view.append("Booklet print job sent.")
 
-        if not result.ok:
-            QMessageBox.critical(self, "Print failed", result.stderr or "Unknown lp error.")
-            return
-        self.log_view.append("Booklet print job sent.")
+        self._start_booklet_build(tmp_path, on_success, on_error=cleanup_temp_file)
