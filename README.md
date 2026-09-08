@@ -7,7 +7,9 @@ keeps working after a printer's IP address or port changes. It also has a
 **Plotter tab** for Silhouette Cameo cutting plotters (USB, Cameo 4/5
 family) -- SVG/PNG/PDF import, a manual drawing tool (freehand, a shape
 catalog, and text), roll-fed vinyl support, project save/load, cut/pen, and
-print-and-cut.
+print-and-cut -- and a **Booklet tab** that turns a PDF into an A5 booklet
+printed 2-up on A4 sheets, in the page order a saddle-stitch (center-fold,
+stapled) booklet needs.
 
 Made by JapySoft TDY.
 
@@ -45,6 +47,9 @@ drifts.
   for exactly what it can and can't fix.
 - **Tray icon** -- quick access to the manager window and a desktop
   notification whenever a printer gets auto-repaired.
+- **Booklet tab** -- turn a normal PDF into an A5 booklet imposed 2-up on
+  A4 sheets, in saddle-stitch page order; export the imposed PDF or print
+  it directly. See below.
 
 ## How the self-healing actually works
 
@@ -157,6 +162,38 @@ own quick "is anything plugged in" status check doesn't name them).
 - A status line shows whether a Cameo is currently detected over USB
   (needs `libusb-1.0-0`, which Ubuntu ships by default).
 
+## Booklet tab
+
+Turns a normal, one-page-per-sheet PDF into an A5 booklet, imposed 2-up on
+A4 sheets in saddle-stitch (center-fold, stapled) order.
+
+- **Load PDF…** -- pick the source PDF. The tab shows how many A4 sheets
+  the booklet will need (blank pages are padded on at the end if the page
+  count isn't a multiple of 4).
+- **Rendering resolution** -- the DPI each source page is rasterized at
+  before being placed on its A5 half (higher = sharper but slower/larger).
+- **Duplex printing** -- "Print booklet…" prints double-sided directly via
+  CUPS. Which physical edge the printer's duplex unit flips around ("short
+  edge" vs "long edge") depends on the printer/driver, and matters here:
+  the wrong one prints the inside pages upside-down. **Short edge is the
+  usual setting for these landscape A4 sheets** and is the default -- if a
+  test booklet still comes out wrong on the inside, tick **"Rotate back
+  sides 180°"** and reprint (or switch the dropdown to "Long edge"), rather
+  than assuming one setting always works across every printer.
+- **Export booklet PDF…** -- saves the imposed PDF instead of printing it
+  directly, e.g. to print manually (odd/even pages separately) on a
+  non-duplex printer, or from a different machine entirely.
+
+**How to assemble it:** print double-sided, stack the printed sheets in
+the order they come out of the printer, fold the whole stack in half at
+once, and staple through the fold. Pages then read 1, 2, 3, ... in order.
+
+**Honesty about testing:** the imposition math (page order, padding, A4/A5
+sizing) is covered by automated tests, but which duplex "flip" setting a
+given real printer actually needs hasn't been verified against physical
+hardware in building this feature -- print a single 4-page test booklet
+first and check the page order before running a full print job.
+
 ### Getting an AI to draw the SVG for you
 
 If you don't want to hand-draw a design, most AI image/vector generators
@@ -226,8 +263,9 @@ your desktop, that's the part most likely to need a follow-up fix.
   shows a placeholder telling you what to install instead of the app
   failing to start)
 - `Pillow` and `pypdfium2` (only needed for the Plotter tab's PNG/PDF
-  import and print-and-cut with a raster image; SVG-based
-  cut/draw/print-and-cut works fine without them)
+  import and print-and-cut with a raster image, and for the whole Booklet
+  tab; SVG-based cut/draw/print-and-cut, and printer/queue management,
+  work fine without them)
 
 Install the Python dependency:
 

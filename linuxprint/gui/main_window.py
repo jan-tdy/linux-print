@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         self.setWindowTitle(f"{config.APP_NAME} {config.APP_VERSION}")
-        self.resize(900, 620)
+        self.resize(*self._initial_window_size(900, 620))
 
         self.settings = config.load_settings()
         self._installed: dict[str, cups_cli.Printer] = {}
@@ -58,6 +58,24 @@ class MainWindow(QMainWindow):
             self.watcher.repairs_applied.connect(self._on_repairs_applied)
             self.watcher.log_message.connect(self._append_log)
             self.watcher.error.connect(self._on_watcher_error)
+
+    @staticmethod
+    def _initial_window_size(preferred_width: int, preferred_height: int) -> tuple[int, int]:
+        """Clamp the preferred startup size to the primary screen's
+        available geometry (minus a small margin for window decorations/
+        taskbars), so the window never opens taller or wider than the
+        monitor it's about to appear on -- a fixed 900x620 could otherwise
+        exceed a smaller laptop screen's usable area, leaving the bottom of
+        the window (and whatever tab-specific content is anchored there)
+        off-screen and unreachable."""
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return preferred_width, preferred_height
+        available = screen.availableGeometry()
+        return (
+            min(preferred_width, max(available.width() - 40, 320)),
+            min(preferred_height, max(available.height() - 80, 240)),
+        )
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         """Hide to tray on close when one is available; otherwise this is
@@ -92,6 +110,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_queue_tab(), "Job queue")
         tabs.addTab(self._build_settings_tab(), "Log & settings")
         tabs.addTab(self._build_plotter_tab(), "Plotter (Cameo)")
+        tabs.addTab(self._build_booklet_tab(), "Booklet (A5)")
         self.setCentralWidget(tabs)
 
     def _build_plotter_tab(self) -> QWidget:
@@ -122,6 +141,33 @@ class MainWindow(QMainWindow):
             layout.addStretch(1)
             return placeholder
         return PlotterTab()
+
+    def _build_booklet_tab(self) -> QWidget:
+        """
+        Build the Booklet tab, or a placeholder explaining what's missing if
+        its optional dependencies (pypdfium2, Pillow) aren't installed.
+
+        Imported here rather than at module load time, same reasoning as
+        _build_plotter_tab: a missing optional dependency must not crash
+        printer management, which doesn't need it.
+        """
+        try:
+            from .booklet_tab import BookletTab
+        except ImportError as exc:
+            placeholder = QWidget()
+            layout = QVBoxLayout(placeholder)
+            layout.addWidget(
+                QLabel(
+                    "The Booklet tab is unavailable -- missing dependency "
+                    f"({exc.name or exc}).\n\n"
+                    "Install it with:\n"
+                    "    python3 -m pip install --user pypdfium2 Pillow\n"
+                    "and restart the application."
+                )
+            )
+            layout.addStretch(1)
+            return placeholder
+        return BookletTab()
 
     def _build_printers_tab(self) -> QWidget:
         """Builds the printer management tab with a printer table and action controls."""

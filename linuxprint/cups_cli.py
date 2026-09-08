@@ -525,10 +525,18 @@ def list_jobs(printer: str | None = None) -> list[Job]:
     return parse_lpstat_o(run(args).stdout)
 
 
-def submit_print_job(printer: str, file_path: str, *, title: str | None = None, ppi: int | None = None) -> ToolResult:
+def submit_print_job(
+    printer: str,
+    file_path: str,
+    *,
+    title: str | None = None,
+    ppi: int | None = None,
+    options: dict[str, str] | None = None,
+) -> ToolResult:
     """Submit a file to a printer's queue (used by the Plotter tab's
-    "print" step of print-and-cut, and available for anything else that
-    needs to print an already-rendered file rather than manage a printer).
+    "print" step of print-and-cut, the Booklet tab's print step, and
+    available for anything else that needs to print an already-rendered
+    file rather than manage a printer).
 
     Parameters:
         printer (str): Destination printer name.
@@ -542,6 +550,9 @@ def submit_print_job(printer: str, file_path: str, *, title: str | None = None, 
             default, which need not match, throwing off anything (like
             print-and-cut's registration marks) that depends on the
             printed page matching an exact physical scale.
+        options (dict[str, str] | None): Extra `-o key=value` CUPS options
+            (e.g. {"sides": "two-sided-short-edge"} for duplex booklet
+            printing), passed through as-is.
 
     Returns:
         ToolResult: The result of the `lp` command.
@@ -551,6 +562,8 @@ def submit_print_job(printer: str, file_path: str, *, title: str | None = None, 
         args += ["-t", title]
     if ppi is not None:
         args += ["-o", f"ppi={ppi}"]
+    for key, value in (options or {}).items():
+        args += ["-o", f"{key}={value}"]
     args.append(file_path)
     return run(args)
 

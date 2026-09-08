@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -42,6 +43,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTextEdit,
@@ -506,7 +508,21 @@ class PlotterTab(QWidget):
         controls_layout.addWidget(buttons_group)
 
         controls_layout.addStretch(1)
-        splitter.addWidget(controls)
+
+        # The stacked group boxes above have enough combined minimum height
+        # (cut settings, drawing tool, text, print & cut, actions) that
+        # without a scroll area, Qt would refuse to shrink the whole main
+        # window below that sum -- on a smaller/laptop screen that pushed
+        # the window taller than the available monitor space, with the log
+        # view and action buttons at the bottom left unreachable. Wrapping
+        # just this column in a QScrollArea decouples the window's minimum
+        # size from the controls' total height: the column scrolls instead
+        # of forcing the window to grow.
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        controls_scroll.setWidget(controls)
+        splitter.addWidget(controls_scroll)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
