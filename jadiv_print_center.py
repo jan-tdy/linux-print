@@ -81,27 +81,27 @@ def main(argv: list[str] | None = None) -> int:
     if acquisition is AcquisitionResult.ERROR:
         QMessageBox.critical(
             None,
-            "Nepodarilo sa spustiť",
-            "Jadiv Print Center sa nepodarilo spustiť (zlyhalo IPC spojenie).",
+            "Failed to Start",
+            "Jadiv Print Center failed to start (IPC connection failed).",
         )
         return 1
 
     if not is_available("lpstat") or not is_available("lpadmin"):
         QMessageBox.critical(
             None,
-            "Chýbajú CUPS nástroje",
-            "Nenašiel som 'lpstat'/'lpadmin'. Nainštaluj balík 'cups' a 'cups-client':\n\n"
+            "Missing CUPS Tools",
+            "Could not find 'lpstat'/'lpadmin'. Install the 'cups' and 'cups-client' packages:\n\n"
             "  sudo apt install cups cups-client\n\n"
-            "Aplikácia sa teraz ukončí.",
+            "The application will now exit.",
         )
         return 1
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
         QMessageBox.warning(
             None,
-            "Systémová lišta nie je dostupná",
-            "Prostredie nemá systémovú lištu -- aplikácia pobeží iba ako okno, "
-            "bez ikony na pozadí.",
+            "System Tray Unavailable",
+            "This environment has no system tray -- the application will run as a "
+            "window only, without a background icon.",
         )
 
     main_window = MainWindow(run_watcher=True)
@@ -114,11 +114,11 @@ def main(argv: list[str] | None = None) -> int:
         if watcher is not None:
             watcher.repairs_applied.connect(
                 lambda results: tray.notify(
-                    "Tlačiareň bola opravená",
+                    "Printer Repaired",
                     "\n".join(r.message for r in results),
                 )
             )
-            watcher.error.connect(lambda message: tray.notify("Chyba pri kontrole tlačiarní", message))
+            watcher.error.connect(lambda message: tray.notify("Printer Check Error", message))
     else:
         main_window.show()
 
