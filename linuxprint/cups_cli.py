@@ -10,6 +10,7 @@ CUPS installation.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -75,6 +76,7 @@ def run(args: list[str], timeout: int = DEFAULT_TIMEOUT) -> ToolResult:
             text=True,
             timeout=timeout,
             check=False,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
         )
     except subprocess.TimeoutExpired as exc:
         return ToolResult(False, -1, "", f"timeout: {exc}")
