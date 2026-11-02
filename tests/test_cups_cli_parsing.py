@@ -1,11 +1,15 @@
 from linuxprint.cups_cli import (
+    Printer,
+    ToolResult,
     add_or_update_printer,
     parse_lpinfo_v,
+    parse_lpoptions_p,
     parse_lpstat_a,
     parse_lpstat_d,
     parse_lpstat_o,
     parse_lpstat_p,
     parse_lpstat_v,
+    rename_printer,
     requires_legacy_transport_opt_in,
     set_device_uri,
     submit_print_job,
@@ -146,3 +150,104 @@ def test_submit_print_job_with_ppi_tells_cups_the_raster_resolution(monkeypatch)
     submit_print_job("Office", "/tmp/artwork.png", title="Job", ppi=200)
 
     assert calls == [["lp", "-d", "Office", "-t", "Job", "-o", "ppi=200", "/tmp/artwork.png"]]
+
+
+def test_parse_lpoptions_p_extracts_shared_description_and_location():
+    output = (
+        "copies=1 device-uri=ipp://printer.local/ipp/print printer-info=FrontDesk "
+        "printer-is-shared=true printer-location=Lobby\n"
+    )
+    attrs = parse_lpoptions_p(output)
+    assert attrs["printer-is-shared"] == "true"
+    assert attrs["printer-location"] == "Lobby"
+    assert attrs["device-uri"] == "ipp://printer.local/ipp/print"
+
+
+def test_rename_printer_fails_fast_when_old_printer_missing(monkeypatch):
+    monkeypatch.setattr("linuxprint.cups_cli.list_printers", lambda: {})
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    result = rename_printer("Missing", "New", "ipp://printer.local/ipp/print")
+
+    assert not result.ok
+    assert calls == []
+
+
+def test_rename_printer_carries_over_shared_description_location_and_default(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "linuxprint.cups_cli.list_printers",
+        lambda: {"Old": Printer(name="Old", uri="ipp://printer.local/ipp/print", is_default=True)},
+    )
+    monkeypatch.setattr(
+        "linuxprint.cups_cli.printer_attributes",
+        lambda name: {
+            "printer-info": "Front Desk",
+            "printer-location": "Lobby",
+            "printer-is-shared": "true",
+        },
+    )
+    monkeypatch.setattr("linuxprint.cups_cli.os.path.isfile", lambda path: False)
+
+    def fake_run(args):
+        calls.append(args)
+        return ToolResult(True, 0, "", "")
+
+    monkeypatch.setattr("linuxprint.cups_cli.run", fake_run)
+
+    result = rename_printer("Old", "New", "ipp://printer.local/ipp/print", allow_legacy_transport=True)
+
+    assert result.ok
+    lpadmin_call = calls[0]
+    assert lpadmin_call[:5] == ["lpadmin", "-p", "New", "-v", "ipp://printer.local/ipp/print"]
+    assert lpadmin_call[lpadmin_call.index("-D") + 1] == "Front Desk"
+    assert lpadmin_call[lpadmin_call.index("-L") + 1] == "Lobby"
+    assert "printer-is-shared=true" in lpadmin_call
+    assert ["lpoptions", "-d", "New"] in calls
+    assert ["lpadmin", "-x", "Old"] in calls
+
+
+def test_rename_printer_copies_bound_ppd_when_present(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "linuxprint.cups_cli.list_printers",
+        lambda: {"Old": Printer(name="Old", uri="ipp://printer.local/ipp/print")},
+    )
+    monkeypatch.setattr("linuxprint.cups_cli.printer_attributes", lambda name: {})
+    monkeypatch.setattr("linuxprint.cups_cli._SYSTEM_PPD_DIR", str(tmp_path))
+    ppd_path = tmp_path / "Old.ppd"
+    ppd_path.write_text('*PPD-Adobe: "4.3"\n')
+
+    calls = []
+
+    def fake_run(args):
+        calls.append(args)
+        return ToolResult(True, 0, "", "")
+
+    monkeypatch.setattr("linuxprint.cups_cli.run", fake_run)
+
+    rename_printer("Old", "New", "ipp://printer.local/ipp/print", allow_legacy_transport=True)
+
+    assert ["lpadmin", "-p", "New", "-P", str(ppd_path)] in calls
+
+
+def test_rename_printer_keeps_old_queue_when_new_queue_creation_fails(monkeypatch):
+    monkeypatch.setattr(
+        "linuxprint.cups_cli.list_printers",
+        lambda: {"Old": Printer(name="Old", uri="ipp://printer.local/ipp/print")},
+    )
+    monkeypatch.setattr("linuxprint.cups_cli.printer_attributes", lambda name: {})
+
+    calls = []
+
+    def fake_run(args):
+        calls.append(args)
+        return ToolResult(False, 1, "", "lpadmin: failed")
+
+    monkeypatch.setattr("linuxprint.cups_cli.run", fake_run)
+
+    result = rename_printer("Old", "New", "ipp://printer.local/ipp/print", allow_legacy_transport=True)
+
+    assert not result.ok
+    assert calls  # the lpadmin call was actually attempted
+    assert ["lpadmin", "-x", "Old"] not in calls

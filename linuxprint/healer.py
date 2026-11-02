@@ -39,6 +39,7 @@ def plan_repairs(
     installed: dict[str, Printer],
     discovered: list[DiscoveredPrinter],
     identities: dict[str, IdentityRecord],
+    unreachable: dict[str, bool] | None = None,
 ) -> list[Repair]:
     """Compare what's installed against what's currently discoverable and
     propose device-URI fixes for printers that drifted.
@@ -56,7 +57,24 @@ def plan_repairs(
     that could silently redirect one printer's jobs to another device, so a
     repair is only ever proposed for a key that maps to exactly one
     installed printer *and* exactly one currently discovered device.
+
+    That ambiguity guard alone isn't enough: a printer that is simply
+    powered off at its recorded address is still "the one" installed
+    printer for its key, and if some unrelated device elsewhere happens to
+    claim the same key, the guard above would wave a repair through anyway
+    -- silently repointing a printer that was never broken. So a repair is
+    additionally proposed only when ``unreachable`` says the printer's
+    *current* host is confirmed unreachable (see
+    :func:`is_host_reachable`); a printer missing from ``unreachable``, or
+    mapped to `False`, is left alone.
+
+    Parameters:
+        unreachable (dict[str, bool] | None): Per-printer reachability of
+            each installed printer's currently configured host, keyed by
+            printer name (`True` means unreachable). Typically produced by
+            probing with :func:`is_host_reachable`.
     """
+    unreachable = unreachable or {}
     discovered_by_key: dict[str, list[DiscoveredPrinter]] = {}
     for device in discovered:
         discovered_by_key.setdefault(device.identity_key, []).append(device)
@@ -77,6 +95,8 @@ def plan_repairs(
         current_scheme = printer.uri.split(":", 1)[0] if ":" in printer.uri else ""
         if current_scheme not in IP_PINNED_SCHEMES:
             continue
+        if not unreachable.get(name, False):
+            continue  # still answering at its recorded address; don't guess
         if len(installed_names_by_key.get(record.identity_key, [])) != 1:
             continue  # ambiguous: another installed printer shares this identity
         matches = discovered_by_key.get(record.identity_key, [])
