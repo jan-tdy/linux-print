@@ -27,10 +27,43 @@ def test_plan_repairs_fixes_drifted_ip_printer():
             added_at=0.0,
         )
     }
-    repairs = plan_repairs(installed, discovered, identities)
+    repairs = plan_repairs(installed, discovered, identities, {"Office_Printer": True})
     assert len(repairs) == 1
     assert repairs[0].printer_name == "Office_Printer"
     assert repairs[0].new_uri == "ipp://192.168.1.99:631/ipp/print"
+
+
+def test_plan_repairs_skips_when_current_host_still_reachable():
+    """A printer that still answers at its recorded address must never be
+    repointed, even if some unrelated device elsewhere happens to share its
+    identity key (the key deliberately excludes the host) -- only a
+    confirmed-unreachable printer is a repair candidate."""
+    installed = {
+        "Office_Printer": Printer(name="Office_Printer", uri="ipp://192.168.1.50:631/ipp/print"),
+    }
+    discovered = [
+        DiscoveredPrinter(
+            uri="ipp://192.168.1.99:631/ipp/print",
+            scheme="ipp",
+            category="network-ip",
+            label="192.168.1.99:631/ipp/print",
+            identity_key="ip:ipp:/ipp/print",
+            host="192.168.1.99",
+            port=631,
+        )
+    ]
+    identities = {
+        "Office_Printer": IdentityRecord(
+            identity_key="ip:ipp:/ipp/print",
+            category="network-ip",
+            added_uri="ipp://192.168.1.50:631/ipp/print",
+            added_at=0.0,
+        )
+    }
+    # No reachability info at all...
+    assert plan_repairs(installed, discovered, identities) == []
+    # ...and explicitly marked reachable.
+    assert plan_repairs(installed, discovered, identities, {"Office_Printer": False}) == []
 
 
 def test_apply_repairs_reuses_persisted_legacy_transport_consent(monkeypatch):
@@ -121,7 +154,8 @@ def test_plan_repairs_skips_ambiguous_shared_identity_two_installed_printers():
         "Office_A": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0),
         "Office_B": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.51:631/ipp/print", 0.0),
     }
-    assert plan_repairs(installed, discovered, identities) == []
+    unreachable = {"Office_A": True, "Office_B": True}
+    assert plan_repairs(installed, discovered, identities, unreachable) == []
 
 
 def test_plan_repairs_skips_ambiguous_duplicate_discovered_devices():
@@ -152,7 +186,7 @@ def test_plan_repairs_skips_ambiguous_duplicate_discovered_devices():
     identities = {
         "Office_Printer": IdentityRecord("ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.50:631/ipp/print", 0.0)
     }
-    assert plan_repairs(installed, discovered, identities) == []
+    assert plan_repairs(installed, discovered, identities, {"Office_Printer": True}) == []
 
 
 def test_plan_repairs_ignores_stale_identity_when_checking_ambiguity():
@@ -178,7 +212,7 @@ def test_plan_repairs_ignores_stale_identity_when_checking_ambiguity():
             "ip:ipp:/ipp/print", "network-ip", "ipp://192.168.1.51:631/ipp/print", 0.0
         ),
     }
-    repairs = plan_repairs(installed, discovered, identities)
+    repairs = plan_repairs(installed, discovered, identities, {"Live_Printer": True})
     assert len(repairs) == 1
     assert repairs[0].printer_name == "Live_Printer"
     assert repairs[0].new_uri == "ipp://192.168.1.99:631/ipp/print"

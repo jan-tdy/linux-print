@@ -232,14 +232,48 @@ def list_printers() -> dict[str, Printer]:
 
 def printer_uri(name: str) -> str | None:
     """Retrieve the device URI for a printer.
-    
+
     Parameters:
     	name (str): The printer name.
-    
+
     Returns:
     	str | None: The printer's device URI, or `None` if no URI is found.
     """
     return parse_lpstat_v(run(["lpstat", "-v", name]).stdout).get(name)
+
+
+def parse_lpoptions_p(output: str) -> dict[str, str]:
+    """
+    Parse the `name=value` attribute tokens printed by `lpoptions -p <name>`.
+
+    Parameters:
+        output (str): Raw output from `lpoptions -p <name>`.
+
+    Returns:
+        dict[str, str]: Attribute values keyed by IPP attribute name (e.g.
+        "printer-is-shared", "printer-info" (description), "printer-location").
+    """
+    attrs: dict[str, str] = {}
+    for token in output.split():
+        key, sep, value = token.partition("=")
+        if sep:
+            attrs[key] = value
+    return attrs
+
+
+def printer_attributes(name: str) -> dict[str, str]:
+    """
+    Retrieve a printer's current IPP attributes.
+
+    Parameters:
+        name (str): The printer name.
+
+    Returns:
+        dict[str, str]: Attribute values keyed by IPP attribute name, as
+        reported by `lpoptions -p <name>` (empty if the printer doesn't
+        exist or the command fails).
+    """
+    return parse_lpoptions_p(run(["lpoptions", "-p", name]).stdout)
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +480,9 @@ def set_shared(name: str, shared: bool) -> ToolResult:
     return run(["lpadmin", "-p", name, "-o", f"printer-is-shared={'true' if shared else 'false'}"])
 
 
+_SYSTEM_PPD_DIR = "/etc/cups/ppd"
+
+
 def rename_printer(
     old_name: str,
     new_name: str,
@@ -454,20 +491,44 @@ def rename_printer(
     allow_legacy_transport: bool = False,
 ) -> ToolResult:
     """
-    Rename a CUPS printer by creating the new printer and removing the old one.
-    
+    Rename a CUPS printer by creating a new printer that carries over the
+    old queue's description, location, sharing, bound PPD (best-effort) and
+    default-printer flag, then removing the old queue once the new one is
+    confirmed. Jobs still queued on the old printer are not migrated and
+    are lost, same as before.
+
     Parameters:
         old_name (str): Name of the existing printer.
         new_name (str): Name for the new printer.
         uri (str): Device URI for the new printer.
         allow_legacy_transport (bool): Whether the user explicitly accepted an unencrypted network transport.
-    
+
     Returns:
-        ToolResult: Result of creating the new printer.
+        ToolResult: Result of creating the new printer. The old printer is
+        removed only if this succeeds.
     """
-    result = add_or_update_printer(new_name, uri, allow_legacy_transport=allow_legacy_transport)
-    if result.ok:
-        remove_printer(old_name)
+    old_printer = list_printers().get(old_name)
+    if old_printer is None:
+        return ToolResult(False, -1, "", f"Printer '{old_name}' is not installed.")
+
+    attrs = printer_attributes(old_name)
+    result = add_or_update_printer(
+        new_name,
+        uri,
+        description=attrs.get("printer-info", ""),
+        location=attrs.get("printer-location", ""),
+        shared=attrs.get("printer-is-shared", "false").lower() == "true",
+        set_default=old_printer.is_default,
+        allow_legacy_transport=allow_legacy_transport,
+    )
+    if not result.ok:
+        return result
+
+    old_ppd = os.path.join(_SYSTEM_PPD_DIR, f"{old_name}.ppd")
+    if os.path.isfile(old_ppd):
+        run(["lpadmin", "-p", new_name, "-P", old_ppd])
+
+    remove_printer(old_name)
     return result
 
 

@@ -80,7 +80,7 @@ class Watcher(QObject):
             return
 
         identities = identity.load_map()
-        repairs = healer.plan_repairs(installed, discovered, identities)
+        repairs = healer.plan_repairs(installed, discovered, identities, unreachable)
         if not repairs:
             return
         results = healer.apply_repairs(repairs)
