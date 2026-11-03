@@ -28,7 +28,7 @@ from .. import config, cups_cli, discovery, healer, identity, servicectl
 from ..cups_cli import CupsToolMissing
 from ..watcher import start_watcher_thread
 from .add_wizard import AddPrinterDialog
-from .widgets import CATEGORY_LABELS, status_item
+from .widgets import CATEGORY_LABELS, STATE_LABELS, status_item, supplies_item
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
         self.settings = config.load_settings()
         self._installed: dict[str, cups_cli.Printer] = {}
         self._unreachable: dict[str, bool] = {}
+        self._supplies: dict[str, list[cups_cli.MarkerLevel]] = {}
 
         self._build_ui()
 
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
             self.thread, self.watcher = start_watcher_thread(self.settings)
             self.watcher.printers_updated.connect(self._on_printers_updated)
             self.watcher.unreachable_changed.connect(self._on_unreachable_updated)
+            self.watcher.supplies_updated.connect(self._on_supplies_updated)
             self.watcher.repairs_applied.connect(self._on_repairs_applied)
             self.watcher.log_message.connect(self._append_log)
             self.watcher.error.connect(self._on_watcher_error)
@@ -189,8 +191,10 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.printers_table = QTableWidget(0, 5)
-        self.printers_table.setHorizontalHeaderLabels(["Name", "Status", "Type", "Address (URI)", "Default"])
+        self.printers_table = QTableWidget(0, 6)
+        self.printers_table.setHorizontalHeaderLabels(
+            ["Name", "Status", "Type", "Address (URI)", "Default", "Supplies"]
+        )
         self.printers_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.printers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.printers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -209,7 +213,20 @@ class MainWindow(QMainWindow):
         disable_btn.clicked.connect(lambda: self._on_set_enabled(False))
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self._refresh_printers_now)
-        for btn in (add_btn, remove_btn, default_btn, enable_btn, disable_btn, refresh_btn):
+        test_page_btn = QPushButton("Print test page")
+        test_page_btn.clicked.connect(self._on_print_test_page)
+        diagnose_btn = QPushButton("Why is it stopped?")
+        diagnose_btn.clicked.connect(self._on_diagnose_printer)
+        for btn in (
+            add_btn,
+            remove_btn,
+            default_btn,
+            enable_btn,
+            disable_btn,
+            refresh_btn,
+            test_page_btn,
+            diagnose_btn,
+        ):
             buttons.addWidget(btn)
         buttons.addStretch(1)
         layout.addLayout(buttons)
@@ -321,6 +338,11 @@ class MainWindow(QMainWindow):
         self._unreachable = unreachable
         self._render_printers_table()
 
+    def _on_supplies_updated(self, supplies: dict[str, list[cups_cli.MarkerLevel]]) -> None:
+        """Update printer supply-level data and refresh the printer table."""
+        self._supplies = supplies
+        self._render_printers_table()
+
     def _on_repairs_applied(self, results: list[healer.RepairResult]) -> None:
         """Log applied repair results and refresh the printer display."""
         for result in results:
@@ -371,6 +393,7 @@ class MainWindow(QMainWindow):
             table.setItem(row, 2, QTableWidgetItem(CATEGORY_LABELS.get(category, category)))
             table.setItem(row, 3, QTableWidgetItem(printer.uri))
             table.setItem(row, 4, QTableWidgetItem("Yes" if printer.is_default else ""))
+            table.setItem(row, 5, supplies_item(self._supplies.get(name, [])))
 
     def _selected_printer_name(self) -> str | None:
         """
@@ -470,6 +493,50 @@ class MainWindow(QMainWindow):
         if name:
             cups_cli.set_enabled(name, enabled)
             self._refresh_printers_now()
+
+    def _on_print_test_page(self) -> None:
+        """Print the standard CUPS test page on the selected printer and
+        report whether the job was accepted."""
+        name = self._selected_printer_name()
+        if not name:
+            return
+        result = cups_cli.print_test_page(name)
+        if not result.ok:
+            QMessageBox.critical(self, "Test page failed", result.stderr or "Unknown lp error.")
+            return
+        QMessageBox.information(self, "Test page", f"Test page sent to '{name}'.")
+
+    def _on_diagnose_printer(self) -> None:
+        """Show why the selected printer is stopped, unreachable, or low on
+        supplies, pulling together the data the printer table already
+        carries (state, state reason, reachability, and supply levels)."""
+        name = self._selected_printer_name()
+        if not name:
+            return
+        printer = self._installed.get(name)
+        if printer is None:
+            return
+
+        unreachable = self._unreachable.get(name, False)
+        state = "unreachable" if unreachable else printer.state
+        lines = [f"Status: {STATE_LABELS.get(state, state)}"]
+        if printer.state_reason:
+            lines.append(f"Reason: {printer.state_reason}")
+        if not printer.accepting:
+            lines.append("The printer is rejecting new jobs.")
+        if unreachable:
+            lines.append(
+                "The printer's configured address did not answer -- check that "
+                "it's powered on and reachable on the network."
+            )
+        low_supplies = [m for m in self._supplies.get(name, []) if m.low]
+        if low_supplies:
+            lines.append(
+                "Low supplies: " + ", ".join(f"{m.name} ({m.level}%)" for m in low_supplies)
+            )
+        if len(lines) == 1 and state == "idle":
+            lines.append("No problems detected.")
+        QMessageBox.information(self, f"Diagnostics -- {name}", "\n".join(lines))
 
     # ------------------------------------------------------------------
     # Queue tab actions

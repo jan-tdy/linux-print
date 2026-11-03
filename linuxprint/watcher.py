@@ -17,19 +17,22 @@ class Watcher(QObject):
     discovered_updated = pyqtSignal(list)  # list[DiscoveredPrinter]
     repairs_applied = pyqtSignal(list)  # list[RepairResult]
     unreachable_changed = pyqtSignal(dict)  # name -> bool (True = unreachable)
+    supplies_updated = pyqtSignal(dict)  # name -> list[cups_cli.MarkerLevel]
+    supplies_low = pyqtSignal(str)
     log_message = pyqtSignal(str)
     error = pyqtSignal(str)
 
     def __init__(self, settings: config.Settings | None = None) -> None:
         """
         Initialize the watcher with the provided settings or the application's loaded settings.
-        
+
         Parameters:
         	settings (config.Settings | None): Optional application settings. When omitted, settings are loaded automatically.
         """
         super().__init__()
         self.settings = settings or config.load_settings()
         self._timer: QTimer | None = None
+        self._low_supplies_notified: set[tuple[str, str]] = set()
 
     def start(self) -> None:
         """
@@ -76,6 +79,15 @@ class Watcher(QObject):
                 unreachable[name] = not healer.is_host_reachable(classified.host, classified.port or 631)
         self.unreachable_changed.emit(unreachable)
 
+        supplies: dict[str, list[cups_cli.MarkerLevel]] = {}
+        for name in installed:
+            try:
+                supplies[name] = cups_cli.get_marker_levels(name)
+            except cups_cli.CupsToolMissing:
+                supplies[name] = []
+        self.supplies_updated.emit(supplies)
+        self._check_low_supplies(supplies)
+
         if not self.settings.autoheal_enabled:
             return
 
@@ -88,6 +100,22 @@ class Watcher(QObject):
             healer.append_log(result.message)
             self.log_message.emit(result.message)
         self.repairs_applied.emit(results)
+
+    def _check_low_supplies(self, supplies: dict[str, list[cups_cli.MarkerLevel]]) -> None:
+        """Emit :attr:`supplies_low` once per printer/marker that drops to or
+        below :data:`cups_cli.LOW_SUPPLY_LEVEL`, and stop re-emitting it once
+        the level recovers (so a refill doesn't keep the old notification
+        from firing again until it actually goes low a second time)."""
+        current: set[tuple[str, str]] = set()
+        for name, markers in supplies.items():
+            for marker in markers:
+                if not marker.low:
+                    continue
+                key = (name, marker.name)
+                current.add(key)
+                if key not in self._low_supplies_notified:
+                    self.supplies_low.emit(f"{name}: {marker.name} is low ({marker.level}%).")
+        self._low_supplies_notified = current
 
 
 def start_watcher_thread(settings: config.Settings | None = None) -> tuple[QThread, Watcher]:

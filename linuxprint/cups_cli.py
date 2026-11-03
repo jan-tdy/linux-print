@@ -277,6 +277,134 @@ def printer_attributes(name: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Supplies (ink/toner levels)
+# ---------------------------------------------------------------------------
+
+LOW_SUPPLY_LEVEL = 10  # percent; at or below this is flagged as low
+
+TEST_PAGE_FILE = "/usr/share/cups/data/testprint"
+
+_MARKER_ATTRIBUTES = ("marker-names", "marker-levels", "marker-colors", "marker-types")
+
+_MARKER_LEVELS_SCRIPT = """\
+{{
+    OPERATION Get-Printer-Attributes
+    GROUP operation-attributes-tag
+    ATTR charset attributes-charset utf-8
+    ATTR language attributes-natural-language en
+    ATTR uri printer-uri $uri
+    ATTR keyword requested-attributes {attrs}
+    STATUS successful-ok
+    DISPLAY marker-names
+    DISPLAY marker-levels
+    DISPLAY marker-colors
+    DISPLAY marker-types
+}}
+""".format(attrs=",".join(_MARKER_ATTRIBUTES))
+
+_IPPTOOL_ATTR_RE = re.compile(r"^\s*(?P<attr>[\w-]+)\s*\(.*\)\s*=\s*(?P<value>.+?)\s*$")
+
+
+@dataclass
+class MarkerLevel:
+    name: str
+    level: int = -1  # 0-100 percent, or -1 when unknown
+    color: str = ""
+    marker_type: str = ""
+
+    @property
+    def low(self) -> bool:
+        """Whether this supply is at or below :data:`LOW_SUPPLY_LEVEL`."""
+        return 0 <= self.level <= LOW_SUPPLY_LEVEL
+
+
+def parse_marker_attributes(output: str) -> list[MarkerLevel]:
+    """
+    Parse the marker-names/-levels/-colors/-types attributes out of
+    `ipptool -v` output, pairing them up by position.
+
+    Parameters:
+        output (str): Verbose `ipptool` output containing `DISPLAY`ed
+            marker attributes.
+
+    Returns:
+        list[MarkerLevel]: One entry per name in `marker-names`, with the
+        corresponding level/color/type filled in where available (level is
+        -1 when missing or not a number).
+    """
+    values: dict[str, list[str]] = {}
+    for line in output.splitlines():
+        m = _IPPTOOL_ATTR_RE.match(line)
+        if not m or m.group("attr") not in _MARKER_ATTRIBUTES:
+            continue
+        values[m.group("attr")] = [v.strip() for v in m.group("value").split(",")]
+
+    names = values.get("marker-names", [])
+    levels = values.get("marker-levels", [])
+    colors = values.get("marker-colors", [])
+    types = values.get("marker-types", [])
+
+    markers = []
+    for i, name in enumerate(names):
+        try:
+            level = int(levels[i])
+        except (IndexError, ValueError):
+            level = -1
+        color = colors[i] if i < len(colors) else ""
+        marker_type = types[i] if i < len(types) else ""
+        markers.append(MarkerLevel(name=name, level=level, color=color, marker_type=marker_type))
+    return markers
+
+
+def _run_ipptool(printer_uri: str, script: str, timeout: int = DEFAULT_TIMEOUT) -> ToolResult:
+    """Run `ipptool -tv` against a printer URI, feeding it the given test
+    script over stdin instead of a test file on disk."""
+    binary = _which("ipptool")
+    try:
+        proc = subprocess.run(
+            [binary, "-tv", printer_uri, "-"],
+            input=script,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        return ToolResult(False, -1, "", f"timeout: {exc}")
+    return ToolResult(proc.returncode == 0, proc.returncode, proc.stdout, proc.stderr)
+
+
+def get_marker_levels(name: str) -> list[MarkerLevel]:
+    """
+    Query a printer's current ink/toner supply levels.
+
+    Parameters:
+        name (str): The printer name.
+
+    Returns:
+        list[MarkerLevel]: The printer's supplies, or an empty list if the
+        printer doesn't report any (or the query failed).
+    """
+    result = _run_ipptool(f"ipp://localhost/printers/{name}", _MARKER_LEVELS_SCRIPT)
+    if not result.ok:
+        return []
+    return parse_marker_attributes(result.stdout)
+
+
+def print_test_page(name: str) -> ToolResult:
+    """Print the standard CUPS test page on a printer.
+
+    Parameters:
+        name (str): The printer name.
+
+    Returns:
+        ToolResult: The result of the `lp` command.
+    """
+    return run(["lp", "-d", name, TEST_PAGE_FILE])
+
+
+# ---------------------------------------------------------------------------
 # lpinfo (discovery of available devices/drivers)
 # ---------------------------------------------------------------------------
 

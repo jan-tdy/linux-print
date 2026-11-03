@@ -119,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             watcher.error.connect(lambda message: tray.notify("Printer Check Error", message))
+            watcher.supplies_low.connect(lambda message: tray.notify("Printer Supplies Low", message))
     else:
         main_window.show()
 

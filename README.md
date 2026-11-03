@@ -41,12 +41,22 @@ drifts.
   - **Remote CUPS server** -- point it at a remote CUPS server
     (`host[:port]`) and browse the printers it shares.
 - **Job queue** -- cancel, hold, resume, or move print jobs between printers.
+- **Ink/toner levels** -- a Supplies column shows each printer's marker
+  levels (black/cyan/magenta/yellow or toner cartridges, where the printer
+  reports them), and a tray notification fires when a supply runs low.
+- **Test page** -- print the standard CUPS test page on any printer with
+  one click.
+- **"Why is it stopped?" diagnostics** -- a one-click summary of a
+  printer's state, state reason, job-acceptance, network reachability and
+  supply levels, for when a queue goes to "stopped" and it isn't obvious
+  why.
 - **Background self-healing** -- a watcher thread (also installable as a
   `systemd --user` service, so it runs even with no window open) keeps
   re-discovering printers and repairs device URIs that changed. See below
   for exactly what it can and can't fix.
 - **Tray icon** -- quick access to the manager window and a desktop
-  notification whenever a printer gets auto-repaired.
+  notification whenever a printer gets auto-repaired or runs low on
+  supplies.
 - **Booklet tab** -- turn a normal PDF into an A5 booklet imposed 2-up on
   A4 sheets, in saddle-stitch page order; export the imposed PDF or print
   it directly. See below.
