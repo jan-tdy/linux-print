@@ -9,6 +9,8 @@ from linuxprint.cups_cli import (
     parse_lpstat_o,
     parse_lpstat_p,
     parse_lpstat_v,
+    parse_marker_attributes,
+    print_test_page,
     rename_printer,
     requires_legacy_transport_opt_in,
     set_device_uri,
@@ -229,6 +231,55 @@ def test_rename_printer_copies_bound_ppd_when_present(monkeypatch, tmp_path):
     rename_printer("Old", "New", "ipp://printer.local/ipp/print", allow_legacy_transport=True)
 
     assert ["lpadmin", "-p", "New", "-P", str(ppd_path)] in calls
+
+
+def test_parse_marker_attributes_pairs_values_by_position():
+    output = (
+        "    marker-names (1setOf name(MAX)) = Black,Cyan\n"
+        "    marker-levels (1setOf integer) = 72,8\n"
+        "    marker-colors (1setOf name(MAX)) = #000000,#00FFFF\n"
+        "    marker-types (1setOf keyword) = toner-cartridge,ink-cartridge\n"
+    )
+    markers = parse_marker_attributes(output)
+    assert len(markers) == 2
+    assert markers[0].name == "Black"
+    assert markers[0].level == 72
+    assert markers[0].color == "#000000"
+    assert markers[0].marker_type == "toner-cartridge"
+    assert not markers[0].low
+    assert markers[1].name == "Cyan"
+    assert markers[1].level == 8
+    assert markers[1].low
+
+
+def test_parse_marker_attributes_handles_missing_levels():
+    output = "    marker-names (1setOf name(MAX)) = Black\n"
+    markers = parse_marker_attributes(output)
+    assert len(markers) == 1
+    assert markers[0].level == -1
+    assert not markers[0].low
+
+
+def test_parse_marker_attributes_ignores_unrelated_lines():
+    output = (
+        "localhost - -\n"
+        "Request ID: 1   Operation: get-printer-attributes\n"
+        "marker-names (1setOf name(MAX)) = Black\n"
+        "marker-levels (1setOf integer) = 50\n"
+    )
+    markers = parse_marker_attributes(output)
+    assert len(markers) == 1
+    assert markers[0].name == "Black"
+    assert markers[0].level == 50
+
+
+def test_print_test_page_calls_lp_with_the_standard_test_file(monkeypatch):
+    calls = []
+    monkeypatch.setattr("linuxprint.cups_cli.run", lambda args: calls.append(args))
+
+    print_test_page("Office")
+
+    assert calls == [["lp", "-d", "Office", "/usr/share/cups/data/testprint"]]
 
 
 def test_rename_printer_keeps_old_queue_when_new_queue_creation_fails(monkeypatch):
