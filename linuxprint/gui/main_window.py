@@ -344,9 +344,9 @@ class MainWindow(QMainWindow):
         self._render_printers_table()
 
     def _on_repairs_applied(self, results: list[healer.RepairResult]) -> None:
-        """Log applied repair results and refresh the printer display."""
-        for result in results:
-            self._append_log(result.message)
+        """Refresh the printer display after successful repairs only."""
+        if not results:
+            return
         self._refresh_printers_now()
 
     def _on_watcher_error(self, message: str) -> None:
