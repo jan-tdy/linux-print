@@ -33,6 +33,7 @@ class Watcher(QObject):
         self.settings = settings or config.load_settings()
         self._timer: QTimer | None = None
         self._low_supplies_notified: set[tuple[str, str]] = set()
+        self._failed_repairs: set[tuple[str, str, str]] = set()
 
     def start(self) -> None:
         """
@@ -93,13 +94,34 @@ class Watcher(QObject):
 
         identities = identity.load_map()
         repairs = healer.plan_repairs(installed, discovered, identities, unreachable)
+        repair_keys = {
+            (repair.printer_name, repair.old_uri, repair.new_uri)
+            for repair in repairs
+        }
+        # A failed repair is logged once and retried only after its inputs
+        # change. If a planned repair disappears, allow it to be tried again
+        # should the same condition recur later.
+        self._failed_repairs.intersection_update(repair_keys)
+        repairs = [
+            repair for repair in repairs
+            if (repair.printer_name, repair.old_uri, repair.new_uri)
+            not in self._failed_repairs
+        ]
         if not repairs:
             return
         results = healer.apply_repairs(repairs)
+        succeeded = []
         for result in results:
+            key = (result.repair.printer_name, result.repair.old_uri, result.repair.new_uri)
+            if result.ok:
+                self._failed_repairs.discard(key)
+                succeeded.append(result)
+            else:
+                self._failed_repairs.add(key)
             healer.append_log(result.message)
             self.log_message.emit(result.message)
-        self.repairs_applied.emit(results)
+        if succeeded:
+            self.repairs_applied.emit(succeeded)
 
     def _check_low_supplies(self, supplies: dict[str, list[cups_cli.MarkerLevel]]) -> None:
         """Emit :attr:`supplies_low` once per printer/marker that drops to or
