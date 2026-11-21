@@ -5,7 +5,9 @@ open. Runs on a QTimer inside a dedicated QThread so it never blocks the UI.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from copy import deepcopy
+
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
 
 from . import config, cups_cli, discovery, healer, identity
 
@@ -21,6 +23,8 @@ class Watcher(QObject):
     supplies_low = pyqtSignal(str)
     log_message = pyqtSignal(str)
     error = pyqtSignal(str)
+    settings_changed = pyqtSignal(object)
+    _interval_changed = pyqtSignal(int)
 
     def __init__(self, settings: config.Settings | None = None) -> None:
         """
@@ -30,9 +34,11 @@ class Watcher(QObject):
         	settings (config.Settings | None): Optional application settings. When omitted, settings are loaded automatically.
         """
         super().__init__()
-        self.settings = settings or config.load_settings()
+        self.settings = deepcopy(settings) if settings is not None else config.load_settings()
         self._timer: QTimer | None = None
         self._low_supplies_notified: set[tuple[str, str]] = set()
+        self.settings_changed.connect(self.apply_settings, Qt.ConnectionType.QueuedConnection)
+        self._interval_changed.connect(self._apply_interval, Qt.ConnectionType.QueuedConnection)
 
     def start(self) -> None:
         """
@@ -45,9 +51,20 @@ class Watcher(QObject):
         self.run_cycle()
 
     def update_interval(self, seconds: int) -> None:
-        """Update the watcher's timer interval, enforcing a minimum interval of five seconds."""
+        """Queue a timer interval change onto the watcher thread."""
+        self._interval_changed.emit(seconds)
+
+    @pyqtSlot(int)
+    def _apply_interval(self, seconds: int) -> None:
+        """Apply a queued interval change in the timer owning thread."""
         if self._timer is not None:
             self._timer.setInterval(max(5, seconds) * 1000)
+
+    @pyqtSlot(object)
+    def apply_settings(self, settings: config.Settings) -> None:
+        """Replace settings on the watcher thread and update its timer."""
+        self.settings = deepcopy(settings)
+        self._apply_interval(self.settings.check_interval_seconds)
 
     def run_cycle(self) -> None:
         """
