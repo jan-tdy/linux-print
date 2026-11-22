@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
@@ -621,8 +623,7 @@ class MainWindow(QMainWindow):
         self.settings.notifications_enabled = self.notify_check.isChecked()
         config.save_settings(self.settings)
         if self.watcher is not None:
-            self.watcher.settings = self.settings
-            self.watcher.update_interval(self.settings.check_interval_seconds)
+            self.watcher.settings_changed.emit(deepcopy(self.settings))
         QMessageBox.information(self, "Saved", "Settings have been saved.")
 
     def _refresh_service_status(self) -> None:
