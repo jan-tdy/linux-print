@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _xdg_dir(env_var: str, default: str) -> Path:
@@ -92,9 +96,11 @@ def load_settings() -> Settings:
         return Settings()
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as err:
+        _LOGGER.warning("Could not read settings file %s; using defaults: %s", SETTINGS_FILE, err)
         return Settings()
     if not isinstance(data, dict):
+        _LOGGER.warning("Settings file %s is not a JSON object; using defaults", SETTINGS_FILE)
         return Settings()
     valid = {}
     for key, value in data.items():
@@ -116,9 +122,40 @@ def load_settings() -> Settings:
     return Settings(**valid)
 
 
+def atomic_write_text(path: Path, content: str) -> None:
+    """Replace a text file only after its complete contents are safely written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = path.stat().st_mode & 0o777
+    except FileNotFoundError:
+        mode = 0o600
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            os.fchmod(temporary.fileno(), mode)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def save_settings(settings: Settings) -> None:
-    """
-    Persist application settings as formatted JSON.
-    """
+    """Persist application settings as formatted JSON."""
     ensure_dirs()
-    SETTINGS_FILE.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+    atomic_write_text(SETTINGS_FILE, json.dumps(asdict(settings), indent=2))
